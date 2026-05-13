@@ -1,0 +1,54 @@
+$kind: http-request
+name: "T09: Tambah Produk dengan Nama Sangat Panjang"
+url: http://127.0.0.1:5000/products
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"nama_barang\": \"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\r
+
+    \  \"deskripsi\": \"Edge case panjang nama produk melebihi batas normal\",\r
+
+    \  \"harga\": 1000,\r
+
+    \  \"stok\": 10\r
+
+    }"
+auth:
+  type: bearer
+  credentials:
+    token: "{{access_token}}"
+scripts:
+  - type: afterResponse
+    code: "var jsonData = pm.response.json();\r
+
+      \r
+
+      // Assert kode status — bisa 201 (diterima) atau 500 (error DB)\r
+
+      pm.test(\"API merespons permintaan nama panjang\", function () {\r
+
+      \    pm.expect(pm.response.code).to.be.oneOf([201, 400, 500]);\r
+
+      });\r
+
+      \r
+
+      // Assert jika berhasil, produk tersimpan\r
+
+      pm.test(\"Jika berhasil, response mengandung added_product\", function () {\r
+
+      \    if (pm.response.code === 201) {\r
+
+      \        pm.expect(jsonData).to.have.property('added_product');\r
+
+      \    } else {\r
+
+      \        pm.expect(jsonData).to.have.property('error');\r
+
+      \    }\r
+
+      });"
+    language: text/javascript
+order: 4494707859754263

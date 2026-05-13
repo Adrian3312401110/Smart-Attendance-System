@@ -1,0 +1,62 @@
+$kind: http-request
+name: "T10: Update produk dengan harga negatif"
+url: http://127.0.0.1:5000/products/{{id_produk_edge}}
+method: PATCH
+body:
+  type: json
+  content: "{\r
+
+    \  \"nama_barang\": \"Produk Harga Negatif\",\r
+
+    \  \"deskripsi\": \"Edge case harga negatif\",\r
+
+    \  \"harga\": -99999,\r
+
+    \  \"stok\": 5\r
+
+    }"
+auth:
+  type: bearer
+  credentials:
+    token: "{{access_token}}"
+scripts:
+  - type: afterResponse
+    code: "var jsonData = pm.response.json();\r
+
+      \r
+
+      // Idealnya API menolak harga negatif dengan status 400\r
+
+      pm.test(\"API merespons permintaan harga negatif\", function () {\r
+
+      \    pm.expect(pm.response.code).to.be.oneOf([200, 400]);\r
+
+      });\r
+
+      \r
+
+      // Dokumentasi perilaku aktual API\r
+
+      pm.test(\"Catat perilaku API terhadap harga negatif\", function () {\r
+
+      \    if (pm.response.code === 400) {\r
+
+      \        // Ideal: API memvalidasi dan menolak\r
+
+      \        pm.expect(jsonData).to.have.property('error');\r
+
+      \        console.log(\"BAIK: API menolak harga negatif dengan benar.\");\r
+
+      \    } else {\r
+
+      \        // Tidak ideal: API menerima harga negatif tanpa validasi\r
+
+      \        pm.expect(jsonData).to.have.property('success');\r
+
+      \        console.log(\"PERHATIAN: API menerima harga negatif tanpa validasi. Perlu diperbaiki.\");\r
+
+      \    }\r
+
+      });"
+    language: text/javascript
+order: 4496405875070863
