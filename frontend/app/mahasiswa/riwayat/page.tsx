@@ -1,40 +1,45 @@
+"use client";
+
+import { useEffect, useState } from "react";
 import SidebarMahasiswa from "@/components/SidebarMahasiswa";
 
+const NIM = "3312401110";
+
+interface RiwayatItem {
+  id: number;
+  mata_kuliah: string;
+  tanggal: string;
+  waktu: string;
+  status: string;
+  confidence: number | null;
+}
+
+interface RiwayatData {
+  id_mahasiswa: string;
+  total_pertemuan: number;
+  hadir: number;
+  terlambat: number;
+  tidak_hadir: number;
+  data: RiwayatItem[];
+}
+
 export default function RiwayatMahasiswaPage() {
-  const data = [
-    {
-      matkul: "Kecerdasan Buatan",
-      tanggal: "17 Apr 2026",
-      waktu: "08:03",
-      metode: "Wajah + Lokasi",
-      status: "Hadir",
-      catatan: "-",
-    },
-    {
-      matkul: "Jaringan Komputer",
-      tanggal: "16 Apr 2026",
-      waktu: "10:07",
-      metode: "Wajah",
-      status: "Terlambat",
-      catatan: "Lewat 7 menit",
-    },
-    {
-      matkul: "Basis Data",
-      tanggal: "15 Apr 2026",
-      waktu: "-",
-      metode: "-",
-      status: "Tidak Hadir",
-      catatan: "Tidak melakukan absen",
-    },
-    {
-      matkul: "Algoritma",
-      tanggal: "14 Apr 2026",
-      waktu: "08:01",
-      metode: "Wajah + Lokasi",
-      status: "Hadir",
-      catatan: "-",
-    },
-  ];
+  const [riwayat, setRiwayat] = useState<RiwayatData | null>(null);
+  const [search, setSearch] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`http://localhost:8000/absensi/mahasiswa/${NIM}`)
+      .then((r) => r.json())
+      .then(setRiwayat)
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const data = riwayat?.data ?? [];
+  const filtered = search
+    ? data.filter((item) => item.mata_kuliah.toLowerCase().includes(search.toLowerCase()))
+    : data;
 
   return (
     <main className="min-h-screen bg-slate-100 flex">
@@ -48,22 +53,13 @@ export default function RiwayatMahasiswaPage() {
               Lihat riwayat absensi Anda per mata kuliah dan pertemuan.
             </p>
           </div>
-
-          <div className="flex gap-3">
-            <button className="rounded-xl bg-white px-5 py-3 text-sm font-bold shadow">
-              Filter
-            </button>
-            <button className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white shadow">
-              Export
-            </button>
-          </div>
         </header>
 
         <section className="mb-6 grid grid-cols-4 gap-5">
-          <StatCard title="Total Pertemuan" value="42" color="border-blue-200" />
-          <StatCard title="Hadir" value="37" color="border-green-200" />
-          <StatCard title="Terlambat" value="3" color="border-yellow-200" />
-          <StatCard title="Tidak Hadir" value="2" color="border-red-200" />
+          <StatCard title="Total Pertemuan" value={riwayat?.total_pertemuan ?? 0} color="border-blue-200" />
+          <StatCard title="Hadir" value={riwayat?.hadir ?? 0} color="border-green-200" />
+          <StatCard title="Terlambat" value={riwayat?.terlambat ?? 0} color="border-yellow-200" />
+          <StatCard title="Tidak Hadir" value={riwayat?.tidak_hadir ?? 0} color="border-red-200" />
         </section>
 
         <section className="rounded-2xl bg-white shadow overflow-hidden">
@@ -72,6 +68,8 @@ export default function RiwayatMahasiswaPage() {
 
             <input
               type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
               placeholder="Cari mata kuliah..."
               className="w-64 rounded-xl border border-slate-300 px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
             />
@@ -83,28 +81,38 @@ export default function RiwayatMahasiswaPage() {
                 <th className="p-5">Mata Kuliah</th>
                 <th className="p-5">Tanggal</th>
                 <th className="p-5">Waktu</th>
-                <th className="p-5">Metode</th>
                 <th className="p-5">Status</th>
-                <th className="p-5">Catatan</th>
-                <th className="p-5">Aksi</th>
+                <th className="p-5">Akurasi</th>
               </tr>
             </thead>
 
             <tbody>
-              {data.map((item) => (
-                <tr key={item.matkul} className="border-t">
-                  <td className="p-5 font-semibold">{item.matkul}</td>
+              {loading && (
+                <tr>
+                  <td colSpan={5} className="p-6 text-center text-slate-400">
+                    Memuat data...
+                  </td>
+                </tr>
+              )}
+
+              {!loading && filtered.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="p-6 text-center text-slate-400">
+                    Belum ada riwayat absensi.
+                  </td>
+                </tr>
+              )}
+
+              {filtered.map((item) => (
+                <tr key={item.id} className="border-t">
+                  <td className="p-5 font-semibold">{item.mata_kuliah}</td>
                   <td className="p-5">{item.tanggal}</td>
                   <td className="p-5">{item.waktu}</td>
-                  <td className="p-5">{item.metode}</td>
                   <td className="p-5">
                     <StatusBadge status={item.status} />
                   </td>
-                  <td className="p-5">{item.catatan}</td>
                   <td className="p-5">
-                    <button className="rounded-lg bg-blue-600 px-4 py-2 text-xs font-bold text-white">
-                      Detail
-                    </button>
+                    {item.confidence !== null ? `${(item.confidence * 100).toFixed(1)}%` : "-"}
                   </td>
                 </tr>
               ))}
@@ -116,15 +124,7 @@ export default function RiwayatMahasiswaPage() {
   );
 }
 
-function StatCard({
-  title,
-  value,
-  color,
-}: {
-  title: string;
-  value: string;
-  color: string;
-}) {
+function StatCard({ title, value, color }: { title: string; value: number; color: string }) {
   return (
     <div className={`rounded-2xl border bg-white p-6 shadow ${color}`}>
       <p className="text-sm font-semibold text-slate-500">{title}</p>
@@ -135,15 +135,18 @@ function StatCard({
 
 function StatusBadge({ status }: { status: string }) {
   const style =
-    status === "Hadir"
+    status === "hadir"
       ? "bg-green-100 text-green-600"
-      : status === "Terlambat"
+      : status === "terlambat"
       ? "bg-yellow-100 text-yellow-600"
       : "bg-red-100 text-red-600";
 
+  const label =
+    status === "hadir" ? "Hadir" : status === "terlambat" ? "Terlambat" : "Tidak Hadir";
+
   return (
     <span className={`rounded-full px-3 py-1 text-xs font-bold ${style}`}>
-      {status}
+      {label}
     </span>
   );
 }

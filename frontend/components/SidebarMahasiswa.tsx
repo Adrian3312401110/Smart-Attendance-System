@@ -7,12 +7,13 @@ export default function SidebarMahasiswa() {
   const pathname = usePathname();
 
   const menu = [
-    { label: "Dashboard", href: "/mahasiswa" },
-    { label: "Registrasi Wajah", href: "/mahasiswa/registrasi-wajah" },
-    { label: "Ambil Absensi", href: "/mahasiswa/ambil-absensi" },
-    { label: "Riwayat Mahasiswa", href: "/mahasiswa/riwayat" },
-    { label: "Profile", href: "/mahasiswa/profile" },
-  ];
+  { label: "Dashboard", href: "/mahasiswa" },
+  { label: "Gabung Kelas", href: "/mahasiswa/gabung-kelas" },
+  { label: "Registrasi Wajah", href: "/mahasiswa/registrasi-wajah" },
+  { label: "Ambil Absensi", href: "/mahasiswa/ambil-absensi" },
+  { label: "Riwayat Mahasiswa", href: "/mahasiswa/riwayat" },
+  { label: "Profile", href: "/mahasiswa/profile" },
+];
 
   return (
     <aside className="w-72 min-h-screen bg-blue-700 text-white p-6 flex flex-col">

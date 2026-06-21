@@ -111,3 +111,43 @@ class Absensi(Base):
 
     def __repr__(self):
         return f"<Absensi mhs={self.id_mahasiswa} mk={self.id_mata_kuliah} status={self.status}>"
+    
+import secrets
+import string
+
+
+def generate_kode_kelas():
+    chars = string.ascii_lowercase + string.digits
+    return "".join(secrets.choice(chars) for _ in range(6)) + "#"
+
+
+class Kelas(Base):
+    __tablename__ = "kelas"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    nama = Column(String(50), nullable=False)
+    pelajaran = Column(String(100), nullable=True)
+    lokasi = Column(String(100), nullable=True)
+    kode_gabung = Column(String(10), unique=True, nullable=False, default=generate_kode_kelas)
+    id_dosen = Column(String(20), ForeignKey("dosen.id_dosen"), nullable=False)
+    dibuat_pada = Column(DateTime(timezone=True), server_default=func.now())
+
+    dosen = relationship("Dosen")
+    anggota = relationship("KelasMahasiswa", back_populates="kelas")
+
+    def __repr__(self):
+        return f"<Kelas {self.nama}>"
+
+
+class KelasMahasiswa(Base):
+    __tablename__ = "kelas_mahasiswa"
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    id_kelas = Column(Integer, ForeignKey("kelas.id"), nullable=False)
+    id_mahasiswa = Column(String(20), ForeignKey("mahasiswa.id_mahasiswa"), nullable=False)
+    status = Column(String(20), default="pending")
+    bergabung_pada = Column(DateTime(timezone=True), server_default=func.now())
+
+    kelas = relationship("Kelas", back_populates="anggota")
+    mahasiswa = relationship("Mahasiswa")
+
+    def __repr__(self):
+        return f"<KelasMahasiswa kelas={self.id_kelas} mhs={self.id_mahasiswa} status={self.status}>"
