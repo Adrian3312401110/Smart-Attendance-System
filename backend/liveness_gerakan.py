@@ -74,3 +74,77 @@ def cek_liveness_gerakan(
             "ukuran_wajah_referensi": round(ukuran_wajah_referensi, 2),
         }
     }
+
+def ekstrak_rata_warna_wajah(gambar: np.ndarray, bbox: list) -> tuple:
+    """
+    Ekstrak rata-rata warna RGB di area wajah dari bbox.
+    """
+    x1, y1, x2, y2 = [int(v) for v in bbox]
+    h, w = gambar.shape[:2]
+    x1, y1 = max(0, x1), max(0, y1)
+    x2, y2 = min(w, x2), min(h, y2)
+    crop = gambar[y1:y2, x1:x2]
+    if crop.size == 0:
+        return (0.0, 0.0, 0.0)
+    mean_bgr = crop.mean(axis=(0, 1))
+    return (float(mean_bgr[2]), float(mean_bgr[1]), float(mean_bgr[0]))  # RGB
+
+
+def cek_color_response(
+    frame_list: list[np.ndarray],
+    bbox_list: list,
+    warna_challenge: list[str],
+    ambang_delta: float = 3.0
+) -> dict:
+    """
+    Verifikasi apakah warna ambient di wajah berubah mengikuti challenge warna.
+    
+    warna_challenge: list hex string warna yang ditampilkan layar, urut sesuai frame.
+    ambang_delta: minimum perbedaan warna rata-rata (0-255) antar kondisi berbeda
+                  yang harus terdeteksi di wajah untuk dianggap responsif.
+    """
+    if len(frame_list) < len(warna_challenge):
+        return {
+            "lolos": False,
+            "pesan": "Jumlah frame tidak sesuai dengan jumlah warna challenge",
+            "detail": {}
+        }
+
+    def hex_to_rgb(hex_str: str) -> tuple:
+        hex_str = hex_str.lstrip("#")
+        return tuple(int(hex_str[i:i+2], 16) for i in (0, 2, 4))
+
+    warna_rgb = [hex_to_rgb(w) for w in warna_challenge]
+    warna_wajah_per_frame = []
+
+    for i, (frame, bbox) in enumerate(zip(frame_list, bbox_list)):
+        rata = ekstrak_rata_warna_wajah(frame, bbox)
+        warna_wajah_per_frame.append(rata)
+
+    channel_scores = []
+    for ch in range(3):
+        vals = [w[ch] for w in warna_wajah_per_frame]
+        challenge_vals = [c[ch] for c in warna_rgb]
+
+        korelasi = float(np.corrcoef(vals, challenge_vals)[0, 1])
+        if np.isnan(korelasi):
+            korelasi = 0.0
+        channel_scores.append(korelasi)
+
+    skor_korelasi = float(np.mean(channel_scores))
+    lolos = skor_korelasi >= 0.5
+
+    return {
+        "lolos": lolos,
+        "pesan": (
+            "Color response terverifikasi, wajah responsif terhadap cahaya layar"
+            if lolos else
+            "Wajah tidak responsif terhadap perubahan cahaya layar, kemungkinan foto/layar"
+        ),
+        "skor_korelasi": round(skor_korelasi, 3),
+        "detail": {
+            "warna_challenge": warna_challenge,
+            "warna_wajah_per_frame": [(round(r, 1), round(g, 1), round(b, 1)) for r, g, b in warna_wajah_per_frame],
+            "channel_scores_rgb": [round(s, 3) for s in channel_scores],
+        }
+    }

@@ -1,45 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useRouter } from "next/navigation";
 import {
-  LayoutDashboard, Users, Calendar, BarChart2,
-  ClipboardList, Settings, LogOut, GraduationCap,
   Search, Bell, Maximize, ChevronDown, Sun,
-  SlidersHorizontal, Clock, UserX, Eye, Moon, UserMinus
+  SlidersHorizontal, Clock, UserX, Eye, Moon, UserMinus, Users
 } from "lucide-react";
-
-function SidebarDosen() {
-  const pathname = usePathname();
-  const menu = [
-    { icon: LayoutDashboard, href: "/dosen" },
-    { icon: Users, href: "/dosen/mahasiswa" },
-    { icon: Calendar, href: "/dosen/jadwal" },
-    { icon: BarChart2, href: "/dosen/statistik" },
-    { icon: ClipboardList, href: "/dosen/absensi" },
-  ];
-  return (
-    <aside className="w-16 min-h-screen bg-[#1a1f36] flex flex-col items-center py-5 gap-5 fixed left-0 top-0 z-50">
-      <div className="text-white mb-2"><GraduationCap size={24} /></div>
-      <nav className="flex flex-col gap-2 flex-1">
-        {menu.map((item) => (
-          <Link key={item.href} href={item.href}
-            className={`w-10 h-10 flex items-center justify-center rounded-lg transition-colors ${
-              pathname === item.href ? "bg-blue-600 text-white" : "text-slate-400 hover:bg-blue-600 hover:text-white"
-            }`}
-          >
-            <item.icon size={18} />
-          </Link>
-        ))}
-      </nav>
-      <div className="flex flex-col gap-3 items-center">
-        <Link href="/dosen/settings" className="text-slate-400 hover:text-white"><Settings size={18} /></Link>
-        <Link href="/login" className="text-slate-400 hover:text-red-400"><LogOut size={18} /></Link>
-      </div>
-    </aside>
-  );
-}
+import SidebarNav from "@/components/SidebarNav";
 
 interface JadwalItem {
   id: number;
@@ -68,9 +35,9 @@ interface AbsensiJadwalData {
 }
 
 function statusStyle(status: string) {
-  if (status === "tidak_hadir") return "bg-red-100 text-red-600";
-  if (status === "terlambat") return "bg-yellow-100 text-yellow-600";
-  return "bg-blue-100 text-blue-600";
+  if (status === "tidak_hadir") return "bg-red-100 dark:bg-red-950/50 text-red-600 dark:text-red-300";
+  if (status === "terlambat") return "bg-yellow-100 dark:bg-yellow-950/50 text-yellow-600 dark:text-yellow-300";
+  return "bg-blue-100 dark:bg-blue-950/50 text-blue-600 dark:text-blue-300";
 }
 
 function statusLabel(status: string) {
@@ -80,6 +47,9 @@ function statusLabel(status: string) {
 }
 
 export default function DosenAbsensiPage() {
+  const router = useRouter();
+  const [authUser, setAuthUser] = useState<{ id: string; name: string; email: string; role: string } | null>(null);
+  const [fotoUrl, setFotoUrl] = useState<string | null>(null);
   const [time, setTime] = useState("");
   const [jadwalList, setJadwalList] = useState<JadwalItem[]>([]);
   const [selectedJadwal, setSelectedJadwal] = useState<string>("");
@@ -103,16 +73,41 @@ export default function DosenAbsensiPage() {
   }, []);
 
   useEffect(() => {
-    fetch("http://localhost:8000/jadwal")
-      .then((r) => r.json())
-      .then((data) => {
-        setJadwalList(data.data ?? []);
-        if (data.data?.length > 0) {
-          setSelectedJadwal(String(data.data[0].id));
-        }
-      })
-      .catch(() => {});
-  }, []);
+    const storedUser = localStorage.getItem("auth_user");
+    if (!storedUser) {
+      router.replace("/auth/login");
+      return;
+    }
+
+    try {
+      const parsedUser = JSON.parse(storedUser) as { id: string; name: string; email: string; role: string };
+      if (parsedUser.role !== "dosen") {
+        router.replace("/mahasiswa");
+        return;
+      }
+      setAuthUser(parsedUser);
+    } catch {
+      router.replace("/auth/login");
+    }
+  }, [router]);
+
+useEffect(() => {
+  if (!authUser?.id) return;
+  fetch("http://localhost:8000/jadwal")
+    .then((r) => r.json())
+    .then((data) => {
+      const filteredJadwal = (data.data ?? []).filter((item: JadwalItem) => item.id_dosen === authUser.id);
+      setJadwalList(filteredJadwal);
+      if (filteredJadwal.length > 0) {
+        setSelectedJadwal(String(filteredJadwal[0].id));
+      }
+    })
+    .catch(() => {});
+  fetch(`http://localhost:8000/dosen/${authUser.id}`)
+    .then((r) => r.json())
+    .then((data) => setFotoUrl(data?.foto_url ?? null))
+    .catch(() => {});
+}, [authUser]);
 
   useEffect(() => {
     if (!selectedJadwal) return;
@@ -127,6 +122,12 @@ export default function DosenAbsensiPage() {
   const todayShort = new Date().toLocaleDateString("en-GB", {
     day: "numeric", month: "long", year: "numeric",
   });
+  const userInitials = (authUser?.name ?? "D")
+    .split(" ")
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 
   const rows = absensiData?.data ?? [];
   const filteredRows = search
@@ -138,21 +139,21 @@ export default function DosenAbsensiPage() {
   const totalTidakHadir = rows.filter((r) => r.status === "tidak_hadir").length;
 
   const stats = [
-    { label: "Total Mahasiswa Tercatat", value: absensiData?.total ?? 0, icon: Users, color: "bg-blue-100 text-blue-600", change: "Untuk jadwal terpilih", up: true },
-    { label: "Hadir", value: totalHadir, icon: Clock, color: "bg-green-100 text-green-600", change: "Tepat waktu", up: true },
-    { label: "Terlambat", value: totalTerlambat, icon: Eye, color: "bg-orange-100 text-orange-600", change: "Datang terlambat", up: false },
-    { label: "Tidak Hadir", value: totalTidakHadir, icon: UserX, color: "bg-red-100 text-red-600", change: "Belum absen", up: false },
+    { label: "Total Mahasiswa Tercatat", value: absensiData?.total ?? 0, icon: Users, color: "bg-blue-100 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300", change: "Untuk jadwal terpilih", up: true },
+    { label: "Hadir", value: totalHadir, icon: Clock, color: "bg-green-100 text-green-600 dark:bg-green-950/50 dark:text-green-300", change: "Tepat waktu", up: true },
+    { label: "Terlambat", value: totalTerlambat, icon: Eye, color: "bg-orange-100 text-orange-600 dark:bg-orange-950/50 dark:text-orange-300", change: "Datang terlambat", up: false },
+    { label: "Tidak Hadir", value: totalTidakHadir, icon: UserX, color: "bg-red-100 text-red-600 dark:bg-red-950/50 dark:text-red-300", change: "Belum absen", up: false },
   ];
 
   const selectedJadwalInfo = jadwalList.find((j) => String(j.id) === selectedJadwal);
 
   return (
-    <div className="flex min-h-screen bg-slate-100">
-      <SidebarDosen />
-      <div className="ml-16 flex-1 flex flex-col">
+    <div className="flex min-h-screen bg-slate-100 dark:bg-slate-950">
+      <SidebarNav role="dosen" />
+      <div className="flex-1 flex flex-col">
 
         {/* Topbar */}
-        <div className="bg-blue-700 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
+        <div className="bg-blue-700 dark:bg-blue-800 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
           <span className="text-white font-semibold text-base">Smart Attendance System</span>
           <div className="flex items-center gap-3">
             <div className="relative">
@@ -162,10 +163,11 @@ export default function DosenAbsensiPage() {
             <Bell size={16} className="text-white cursor-pointer" />
             <Maximize size={16} className="text-white cursor-pointer" />
             <div className="flex items-center gap-2 cursor-pointer">
-              <div className="w-8 h-8 rounded-full bg-blue-400 flex items-center justify-center text-white font-semibold text-sm">D</div>
+              <div className="w-8 h-8 rounded-full bg-blue-400 flex items-center justify-center text-white font-semibold text-sm overflow-hidden">{fotoUrl ? <img src={fotoUrl} alt="Foto" className="w-full h-full object-cover" /> : userInitials}</div>
+
               <div className="text-left">
-                <p className="text-white text-xs font-medium">Dosen</p>
-                <p className="text-white/70 text-[11px]">dosen@polibatam.ac.id</p>
+                <p className="text-white text-xs font-medium">{authUser?.name ?? "Dosen"}</p>
+                <p className="text-white/70 text-[11px]">{authUser?.email ?? "-"}</p>
               </div>
               <ChevronDown size={12} className="text-white" />
             </div>
@@ -173,15 +175,15 @@ export default function DosenAbsensiPage() {
         </div>
 
         <div className="p-6">
-          <p className="text-xs text-slate-400 mb-4">Reports /</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Reports /</p>
 
           {/* Pilih Jadwal */}
-          <div className="bg-white rounded-xl shadow-sm p-5 mb-6">
-            <label className="block text-sm font-semibold text-slate-700 mb-2">Pilih Jadwal Kelas</label>
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm p-5 mb-6 border border-transparent dark:border-slate-800">
+            <label className="block text-sm font-semibold text-slate-700 dark:text-slate-200 mb-2">Pilih Jadwal Kelas</label>
             <select
               value={selectedJadwal}
               onChange={(e) => setSelectedJadwal(e.target.value)}
-              className="w-full md:w-96 border border-slate-300 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full md:w-96 border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 rounded-xl px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500"
             >
               {jadwalList.length === 0 && <option value="">Belum ada jadwal</option>}
               {jadwalList.map((j) => (
@@ -193,8 +195,8 @@ export default function DosenAbsensiPage() {
           </div>
 
           {/* Stats Row */}
-          <div className="grid grid-cols-5 gap-4 mb-6">
-            <div className="bg-blue-700 rounded-xl p-4 text-white">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+            <div className="bg-blue-700 dark:bg-blue-800 rounded-xl p-4 text-white">
               <div className="flex items-center gap-2 mb-1">
                 <Sun size={16} />
                 <span className="text-lg font-bold">{time}</span>
@@ -203,81 +205,83 @@ export default function DosenAbsensiPage() {
               <p className="text-sm font-medium">{todayShort}</p>
             </div>
             {stats.map((s) => (
-              <div key={s.label} className="bg-white rounded-xl p-4 shadow-sm">
+              <div key={s.label} className="bg-white dark:bg-slate-900 rounded-xl p-4 shadow-sm border border-transparent dark:border-slate-800">
                 <div className="flex justify-between items-start mb-2">
                   <div>
-                    <p className="text-2xl font-bold text-slate-800">{s.value}</p>
-                    <p className="text-xs text-slate-500 mt-1">{s.label}</p>
+                    <p className="text-2xl font-bold text-slate-800 dark:text-slate-100">{s.value}</p>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">{s.label}</p>
                   </div>
                   <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${s.color}`}>
                     <s.icon size={15} />
                   </div>
                 </div>
-                <p className="text-xs text-slate-400">{s.change}</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500">{s.change}</p>
               </div>
             ))}
           </div>
 
           {/* Table */}
-          <div className="bg-white rounded-xl shadow-sm p-5">
-            <div className="flex justify-between items-center mb-5">
-              <h2 className="font-semibold text-slate-800 text-lg">
+          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm p-5 border border-transparent dark:border-slate-800">
+            <div className="flex justify-between items-center mb-5 flex-wrap gap-3">
+              <h2 className="font-semibold text-slate-800 dark:text-slate-100 text-lg">
                 Kehadiran {selectedJadwalInfo ? selectedJadwalInfo.id_mata_kuliah : ""}
               </h2>
               <div className="flex items-center gap-3">
                 <div className="relative">
-                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
                   <input
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Cari mahasiswa..."
-                    className="border border-slate-200 rounded-lg pl-8 pr-4 py-1.5 text-sm outline-none w-44"
+                    className="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 rounded-lg pl-8 pr-4 py-1.5 text-sm outline-none w-44"
                   />
                 </div>
-                <button className="flex items-center gap-2 bg-blue-600 text-white rounded-lg px-3 py-1.5 text-sm font-medium">
+                <button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-3 py-1.5 text-sm font-medium transition-colors">
                   <SlidersHorizontal size={13} /> Advanced Filters
                 </button>
               </div>
             </div>
 
-            <table className="w-full">
-              <thead>
-                <tr className="text-left text-xs text-slate-400 border-b border-slate-100">
-                  <th className="pb-3 px-3">ID</th>
-                  <th className="pb-3 px-3">Mahasiswa</th>
-                  <th className="pb-3 px-3">Tanggal</th>
-                  <th className="pb-3 px-3">Waktu</th>
-                  <th className="pb-3 px-3">Status</th>
-                  <th className="pb-3 px-3">Akurasi</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading && (
-                  <tr><td colSpan={6} className="py-6 text-center text-slate-400 text-sm">Memuat data...</td></tr>
-                )}
-
-                {!loading && filteredRows.length === 0 && (
-                  <tr><td colSpan={6} className="py-6 text-center text-slate-400 text-sm">Belum ada data absensi untuk jadwal ini.</td></tr>
-                )}
-
-                {filteredRows.map((r) => (
-                  <tr key={r.id} className="border-b border-slate-50 hover:bg-slate-50">
-                    <td className="py-3 px-3 text-sm text-slate-500">{r.id_mahasiswa}</td>
-                    <td className="py-3 px-3 text-sm font-medium text-slate-800">{r.nama_mahasiswa}</td>
-                    <td className="py-3 px-3 text-sm text-slate-500">{r.tanggal}</td>
-                    <td className="py-3 px-3 text-sm text-slate-600">{r.waktu}</td>
-                    <td className="py-3 px-3">
-                      <span className={`text-xs font-semibold px-3 py-1 rounded-lg ${statusStyle(r.status)}`}>
-                        {statusLabel(r.status)}
-                      </span>
-                    </td>
-                    <td className="py-3 px-3 text-sm text-slate-600">
-                      {r.confidence !== null ? `${(r.confidence * 100).toFixed(1)}%` : "-"}
-                    </td>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="text-left text-xs text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800">
+                    <th className="pb-3 px-3">ID</th>
+                    <th className="pb-3 px-3">Mahasiswa</th>
+                    <th className="pb-3 px-3">Tanggal</th>
+                    <th className="pb-3 px-3">Waktu</th>
+                    <th className="pb-3 px-3">Status</th>
+                    <th className="pb-3 px-3">Akurasi</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {loading && (
+                    <tr><td colSpan={6} className="py-6 text-center text-slate-400 dark:text-slate-500 text-sm">Memuat data...</td></tr>
+                  )}
+
+                  {!loading && filteredRows.length === 0 && (
+                    <tr><td colSpan={6} className="py-6 text-center text-slate-400 dark:text-slate-500 text-sm">Belum ada data absensi untuk jadwal ini.</td></tr>
+                  )}
+
+                  {filteredRows.map((r) => (
+                    <tr key={r.id} className="border-b border-slate-50 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 transition-colors">
+                      <td className="py-3 px-3 text-sm text-slate-500 dark:text-slate-400">{r.id_mahasiswa}</td>
+                      <td className="py-3 px-3 text-sm font-medium text-slate-800 dark:text-slate-100">{r.nama_mahasiswa}</td>
+                      <td className="py-3 px-3 text-sm text-slate-500 dark:text-slate-400">{r.tanggal}</td>
+                      <td className="py-3 px-3 text-sm text-slate-600 dark:text-slate-300">{r.waktu}</td>
+                      <td className="py-3 px-3">
+                        <span className={`text-xs font-semibold px-3 py-1 rounded-lg ${statusStyle(r.status)}`}>
+                          {statusLabel(r.status)}
+                        </span>
+                      </td>
+                      <td className="py-3 px-3 text-sm text-slate-600 dark:text-slate-300">
+                        {r.confidence !== null ? `${(r.confidence * 100).toFixed(1)}%` : "-"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       </div>

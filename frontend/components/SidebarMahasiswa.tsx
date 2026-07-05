@@ -9,7 +9,6 @@ export default function SidebarMahasiswa() {
   const menu = [
   { label: "Dashboard", href: "/mahasiswa" },
   { label: "Gabung Kelas", href: "/mahasiswa/gabung-kelas" },
-  { label: "Registrasi Wajah", href: "/mahasiswa/registrasi-wajah" },
   { label: "Ambil Absensi", href: "/mahasiswa/ambil-absensi" },
   { label: "Riwayat Mahasiswa", href: "/mahasiswa/riwayat" },
   { label: "Profile", href: "/mahasiswa/profile" },

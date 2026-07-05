@@ -1,25 +1,127 @@
+import hashlib
+import hmac
+import re
+import secrets
+import time
 import cv2
 import numpy as np
 from fastapi import FastAPI, File, UploadFile, Form, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-
-from backend.liveness_gerakan import cek_liveness_gerakan
 from typing import List
-from backend.liveness_temporal import cek_liveness_temporal
-from backend.liveness_detection import cek_liveness
-from backend.face_detection import deteksi_wajah, crop_wajah
+from datetime import datetime, timedelta
+import json
+import random
+import os
+
+from fastapi.staticfiles import StaticFiles
+from backend.gps_validator import validasi_gps_lengkap, KAMPUS_LAT, KAMPUS_LON, RADIUS_KAMPUS_METER
 from backend.database import engine, get_db, Base
 from backend import models
-from backend.face_detection import proses_gambar_bytes, load_model
-from backend.face_recognition import load_arcface, simpan_embedding, kenali_wajah as kenali_identitas
+from backend.face_detection import proses_gambar_bytes, load_model, deteksi_wajah, crop_wajah
+from backend.face_recognition import load_arcface, simpan_embedding, kenali_wajah as kenali_identitas, generate_embedding
+from backend.gesture_detection import (
+    generate_gesture_challenge, proses_gesture_challenge,
+    load_gesture_model, INSTRUKSI_GESTURE,
+    generate_gesture_challenge_registrasi,
+)
+
+TOLERANSI_MENIT = 15  # jendela "tepat waktu" (on time), tidak berubah
+
+HARI_INDEX = {
+    0: "Senin",
+    1: "Selasa",
+    2: "Rabu",
+    3: "Kamis",
+    4: "Jumat",
+    5: "Sabtu",
+    6: "Minggu",
+}
+
+
+def hari_ini_label() -> str:
+    return HARI_INDEX[datetime.now().weekday()]
+
+
+def format_telat_detik(total_detik: int) -> dict:
+    if total_detik <= 0:
+        return {"terlambat": False, "detik": 0, "menit": 0, "jam": 0, "teks": "Tepat waktu"}
+
+    jam = total_detik // 3600
+    sisa = total_detik % 3600
+    menit = sisa // 60
+    detik = sisa % 60
+
+    bagian = []
+    if jam > 0:
+        bagian.append(f"{jam} jam")
+    if menit > 0:
+        bagian.append(f"{menit} menit")
+    if detik > 0 or not bagian:
+        bagian.append(f"{detik} detik")
+
+    return {
+        "terlambat": True,
+        "detik": total_detik,
+        "menit": total_detik // 60,
+        "jam": round(total_detik / 3600, 2),
+        "teks": "Terlambat " + " ".join(bagian),
+    }
+
+
+def generate_jam_acak(jam_mulai: str, jam_selesai: str, jumlah: int) -> list:
+    fmt = "%H:%M"
+    mulai = datetime.strptime(jam_mulai, fmt)
+    selesai = datetime.strptime(jam_selesai, fmt)
+    total_menit = int((selesai - mulai).total_seconds() / 60)
+    if total_menit <= 0 or jumlah <= 0:
+        return []
+    hasil = set()
+    percobaan = 0
+    while len(hasil) < jumlah and percobaan < jumlah * 30:
+        offset = random.randint(0, total_menit)
+        waktu = mulai + timedelta(minutes=offset)
+        hasil.add(waktu.strftime(fmt))
+        percobaan += 1
+    return sorted(hasil)
+
+
+def _jadwal_to_dict(j: models.Jadwal) -> dict:
+    try:
+        daftar_jam = json.loads(j.daftar_jam_absensi) if j.daftar_jam_absensi else []
+    except (json.JSONDecodeError, TypeError):
+        daftar_jam = []
+
+    return {
+        "id": j.id,
+        "id_dosen": j.id_dosen,
+        "id_kelas": j.id_kelas,
+        "id_mata_kuliah": j.id_mata_kuliah,
+        "hari": j.hari,
+        "jam": j.jam,
+        "jam_mulai": j.jam_mulai,
+        "jam_selesai": j.jam_selesai,
+        "latitude": j.latitude,
+        "longitude": j.longitude,
+        "radius_meter": j.radius_meter,
+        "gps_aktif": j.gps_aktif,
+        "jumlah_gesture": j.jumlah_gesture,
+        "mode_absensi": j.mode_absensi,
+        "daftar_jam_absensi": daftar_jam,
+        "jumlah_sesi_acak": j.jumlah_sesi_acak,
+        "toleransi_telat_menit": j.toleransi_telat_menit,
+        "aktif": j.aktif,
+    }
+
 
 Base.metadata.create_all(bind=engine)
 
 load_model()
 load_arcface()
+load_gesture_model()
 
 app = FastAPI(
     title="Smart Attendance System",
@@ -27,14 +129,58 @@ app = FastAPI(
     version="3.1.0"
 )
 
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+UPLOAD_DIR = "uploads/profil"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+
+EKSTENSI_FOTO_DIIZINKAN = {".jpg", ".jpeg", ".png", ".webp"}
+
+
+def _url_foto(path_relatif: str | None) -> str | None:
+    if not path_relatif:
+        return None
+    return f"http://localhost:8000/{path_relatif}"
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    role: str
+    user_id: str
+    nama: str
+    angkatan: str | None = None
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    email: str
+    password_lama: str
+    password_baru: str
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    derived = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100000)
+    return salt.hex() + ":" + derived.hex()
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    salt_hex, hash_hex = password_hash.split(":", 1)
+    salt = bytes.fromhex(salt_hex)
+    derived = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 100000)
+    return hmac.compare_digest(derived.hex(), hash_hex)
 
 
 @app.get("/")
@@ -52,6 +198,198 @@ def homepage():
 def health_check():
     return {"status": "ok"}
 
+
+@app.post("/auth/register")
+def register_user(payload: RegisterRequest, db: Session = Depends(get_db)):
+    email = payload.email.strip().lower()
+    if not email or not payload.password or not payload.user_id or not payload.nama:
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Semua field wajib diisi"})
+
+    existing = db.query(models.UserAccount).filter(models.UserAccount.email == email).first()
+    if existing:
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Email sudah terdaftar"})
+
+    if payload.role not in {"mahasiswa", "dosen"}:
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Role tidak valid"})
+
+    if len(payload.password) < 12 or not re.search(r"[^A-Za-z0-9]", payload.password):
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Password minimal 12 karakter dan mengandung 1 simbol unik"})
+
+    if payload.role == "mahasiswa":
+        mahasiswa = db.query(models.Mahasiswa).filter(models.Mahasiswa.id_mahasiswa == payload.user_id).first()
+        if not mahasiswa:
+            mahasiswa = models.Mahasiswa(
+                id_mahasiswa=payload.user_id,
+                nama_mahasiswa=payload.nama,
+                email=email,
+                angkatan=payload.angkatan,
+            )
+            db.add(mahasiswa)
+        else:
+            mahasiswa.nama_mahasiswa = payload.nama
+            mahasiswa.email = email
+            if payload.angkatan:
+                mahasiswa.angkatan = payload.angkatan
+    else:
+        dosen = db.query(models.Dosen).filter(models.Dosen.id_dosen == payload.user_id).first()
+        if not dosen:
+            dosen = models.Dosen(id_dosen=payload.user_id, nama_dosen=payload.nama, email=email)
+            db.add(dosen)
+        else:
+            dosen.nama_dosen = payload.nama
+            dosen.email = email
+
+    account = models.UserAccount(
+        email=email,
+        password_hash=hash_password(payload.password),
+        role=payload.role,
+        user_id=payload.user_id,
+        nama=payload.nama,
+    )
+    db.add(account)
+    db.commit()
+    db.refresh(account)
+
+    return {
+        "berhasil": True,
+        "pesan": "Akun berhasil dibuat",
+        "user": {"id": account.user_id, "name": account.nama, "email": account.email, "role": account.role},
+    }
+
+
+@app.post("/auth/register-with-face")
+async def register_user_with_face(
+    nama: str = Form(...),
+    email: str = Form(...),
+    password: str = Form(...),
+    role: str = Form(...),
+    user_id: str = Form(...),
+    angkatan: str = Form(None),
+    foto_list: List[UploadFile] = File(default_factory=list),
+    db: Session = Depends(get_db),
+):
+    email = email.strip().lower()
+    if not email or not password or not user_id or not nama:
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Semua field wajib diisi"})
+
+    existing = db.query(models.UserAccount).filter(models.UserAccount.email == email).first()
+    if existing:
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Email sudah terdaftar"})
+
+    if role not in {"mahasiswa", "dosen"}:
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Role tidak valid"})
+
+    if len(password) < 12 or not re.search(r"[^A-Za-z0-9]", password):
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Password minimal 12 karakter dan mengandung 1 simbol unik"})
+
+    if role == "mahasiswa" and len(foto_list) < 3:
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Ambil minimal 3 sampel wajah untuk akun mahasiswa"})
+
+    if role == "mahasiswa":
+        mahasiswa = db.query(models.Mahasiswa).filter(models.Mahasiswa.id_mahasiswa == user_id).first()
+        if not mahasiswa:
+            mahasiswa = models.Mahasiswa(
+                id_mahasiswa=user_id,
+                nama_mahasiswa=nama,
+                email=email,
+                angkatan=angkatan,
+            )
+            db.add(mahasiswa)
+        else:
+            mahasiswa.nama_mahasiswa = nama
+            mahasiswa.email = email
+            if angkatan:
+                mahasiswa.angkatan = angkatan
+    else:
+        dosen = db.query(models.Dosen).filter(models.Dosen.id_dosen == user_id).first()
+        if not dosen:
+            dosen = models.Dosen(id_dosen=user_id, nama_dosen=nama, email=email)
+            db.add(dosen)
+        else:
+            dosen.nama_dosen = nama
+            dosen.email = email
+
+    validated_samples = []
+    for sample in foto_list:
+        isi_file = await sample.read()
+        embedding, error = generate_embedding(isi_file)
+        if embedding is None:
+            return JSONResponse(status_code=400, content={"berhasil": False, "pesan": f"Gagal memproses sampel wajah: {error}"})
+        validated_samples.append((sample, isi_file))
+
+    account = models.UserAccount(
+        email=email,
+        password_hash=hash_password(password),
+        role=role,
+        user_id=user_id,
+        nama=nama,
+    )
+    db.add(account)
+    db.commit()
+    db.refresh(account)
+
+    for index, (sample, isi_file) in enumerate(validated_samples, start=1):
+        path_foto = f"foto_wajah/{user_id}/{user_id}_sample_{index}.jpg"
+        result = simpan_embedding(
+            id_mahasiswa=user_id,
+            id_foto=f"{user_id}_sample_{index}",
+            path_foto=path_foto,
+            image_bytes=isi_file,
+            db=db,
+        )
+        if not result.get("berhasil", False):
+            return JSONResponse(status_code=400, content={"berhasil": False, "pesan": result.get("pesan", "Gagal menyimpan sampel wajah")})
+
+    return {
+        "berhasil": True,
+        "pesan": "Akun berhasil dibuat dan wajah berhasil didaftarkan",
+        "user": {"id": account.user_id, "name": account.nama, "email": account.email, "role": account.role},
+    }
+
+
+@app.post("/auth/login")
+def login_user(payload: LoginRequest, db: Session = Depends(get_db)):
+    email = payload.email.strip().lower()
+    if not email or not payload.password:
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Email dan password wajib diisi"})
+
+    account = db.query(models.UserAccount).filter(models.UserAccount.email == email).first()
+    if not account or not verify_password(payload.password, account.password_hash):
+        return JSONResponse(status_code=401, content={"berhasil": False, "pesan": "Email atau password salah"})
+
+    return {
+        "berhasil": True,
+        "pesan": "Login berhasil",
+        "user": {"id": account.user_id, "name": account.nama, "email": account.email, "role": account.role},
+    }
+
+
+@app.post("/auth/change-password")
+def change_password(payload: ChangePasswordRequest, db: Session = Depends(get_db)):
+    email = payload.email.strip().lower()
+    if not email or not payload.password_lama or not payload.password_baru:
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Semua field wajib diisi"})
+
+    account = db.query(models.UserAccount).filter(models.UserAccount.email == email).first()
+    if not account:
+        return JSONResponse(status_code=404, content={"berhasil": False, "pesan": "Akun tidak ditemukan"})
+
+    if not verify_password(payload.password_lama, account.password_hash):
+        return JSONResponse(status_code=401, content={"berhasil": False, "pesan": "Password lama salah"})
+
+    if len(payload.password_baru) < 12 or not re.search(r"[^A-Za-z0-9]", payload.password_baru):
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Password baru minimal 12 karakter dan mengandung 1 simbol unik"})
+
+    if payload.password_lama == payload.password_baru:
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Password baru tidak boleh sama dengan password lama"})
+
+    account.password_hash = hash_password(payload.password_baru)
+    db.commit()
+
+    return {"berhasil": True, "pesan": "Password berhasil diubah"}
+
+
+# ===================== DOSEN =====================
 
 @app.post("/dosen")
 def tambah_dosen(
@@ -76,6 +414,7 @@ def tambah_dosen(
 def lihat_dosen(db: Session = Depends(get_db)):
     semua = db.query(models.Dosen).all()
     return {"total": len(semua), "data": [{"id_dosen": d.id_dosen, "nama_dosen": d.nama_dosen, "email": d.email} for d in semua]}
+
 
 @app.put("/dosen/{id_dosen}")
 def update_dosen(
@@ -105,7 +444,45 @@ def lihat_satu_dosen(id_dosen: str, db: Session = Depends(get_db)):
     dosen = db.query(models.Dosen).filter(models.Dosen.id_dosen == id_dosen).first()
     if not dosen:
         return JSONResponse(status_code=404, content={"berhasil": False, "pesan": "Dosen tidak ditemukan"})
-    return {"id_dosen": dosen.id_dosen, "nama_dosen": dosen.nama_dosen, "email": dosen.email}
+    return {
+        "id_dosen": dosen.id_dosen,
+        "nama_dosen": dosen.nama_dosen,
+        "email": dosen.email,
+        "foto_url": _url_foto(dosen.foto_profil),
+    }
+
+
+@app.post("/dosen/{id_dosen}/foto")
+async def upload_foto_dosen(id_dosen: str, foto: UploadFile = File(...), db: Session = Depends(get_db)):
+    dosen = db.query(models.Dosen).filter(models.Dosen.id_dosen == id_dosen).first()
+    if not dosen:
+        return JSONResponse(status_code=404, content={"berhasil": False, "pesan": "Dosen tidak ditemukan"})
+
+    ekstensi = os.path.splitext(foto.filename or "")[1].lower() or ".jpg"
+    if ekstensi not in EKSTENSI_FOTO_DIIZINKAN:
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Format file harus jpg, jpeg, png, atau webp"})
+
+    isi = await foto.read()
+    if len(isi) > 5 * 1024 * 1024:
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Ukuran foto maksimal 5MB"})
+
+    nama_file = f"dosen_{id_dosen}{ekstensi}"
+    path_disk = os.path.join(UPLOAD_DIR, nama_file)
+    with open(path_disk, "wb") as f:
+        f.write(isi)
+
+    dosen.foto_profil = f"{UPLOAD_DIR}/{nama_file}"
+    db.commit()
+    db.refresh(dosen)
+
+    return {
+        "berhasil": True,
+        "pesan": "Foto profil berhasil diperbarui",
+        "foto_url": _url_foto(dosen.foto_profil),
+    }
+
+
+# ===================== MATA KULIAH =====================
 
 @app.post("/mata-kuliah")
 def tambah_mata_kuliah(
@@ -132,34 +509,262 @@ def lihat_mata_kuliah(db: Session = Depends(get_db)):
     return {"total": len(semua), "data": [{"id_mata_kuliah": m.id_mata_kuliah, "nama": m.nama, "sks": m.sks} for m in semua]}
 
 
+@app.put("/mata-kuliah/{id_mata_kuliah}")
+def update_mata_kuliah(
+    id_mata_kuliah: str,
+    nama: str = Form(...),
+    sks: int = Form(None),
+    db: Session = Depends(get_db)
+):
+    mk = db.query(models.MataKuliah).filter(models.MataKuliah.id_mata_kuliah == id_mata_kuliah).first()
+    if not mk:
+        return JSONResponse(status_code=404, content={"berhasil": False, "pesan": "Mata kuliah tidak ditemukan"})
+
+    mk.nama = nama
+    mk.sks = sks
+    db.commit()
+    db.refresh(mk)
+
+    return {
+        "berhasil": True,
+        "pesan": "Mata kuliah berhasil diperbarui",
+        "data": {"id_mata_kuliah": mk.id_mata_kuliah, "nama": mk.nama, "sks": mk.sks}
+    }
+
+
+@app.delete("/mata-kuliah/{id_mata_kuliah}")
+def hapus_mata_kuliah(id_mata_kuliah: str, db: Session = Depends(get_db)):
+    mk = db.query(models.MataKuliah).filter(models.MataKuliah.id_mata_kuliah == id_mata_kuliah).first()
+    if not mk:
+        return JSONResponse(status_code=404, content={"berhasil": False, "pesan": "Mata kuliah tidak ditemukan"})
+
+    dipakai = db.query(models.Jadwal).filter(models.Jadwal.id_mata_kuliah == id_mata_kuliah).count()
+    if dipakai > 0:
+        return JSONResponse(status_code=400, content={
+            "berhasil": False,
+            "pesan": f"Tidak bisa dihapus — mata kuliah ini masih dipakai di {dipakai} jadwal kelas"
+        })
+
+    db.delete(mk)
+    db.commit()
+    return {"berhasil": True, "pesan": "Mata kuliah berhasil dihapus"}
+
+
+@app.get("/mata-kuliah/{id_mata_kuliah}/kelas")
+def lihat_kelas_per_matkul(id_mata_kuliah: str, id_dosen: str = None, db: Session = Depends(get_db)):
+    mk = db.query(models.MataKuliah).filter(models.MataKuliah.id_mata_kuliah == id_mata_kuliah).first()
+    if not mk:
+        return JSONResponse(status_code=404, content={"berhasil": False, "pesan": "Mata kuliah tidak ditemukan"})
+
+    query = db.query(models.Jadwal).filter(models.Jadwal.id_mata_kuliah == id_mata_kuliah)
+    if id_dosen:
+        query = query.filter(models.Jadwal.id_dosen == id_dosen)
+    jadwal_list = query.all()
+
+    hasil = []
+    for j in jadwal_list:
+        kelas = db.query(models.Kelas).filter(models.Kelas.id == j.id_kelas).first()
+        dosen = db.query(models.Dosen).filter(models.Dosen.id_dosen == j.id_dosen).first()
+
+        total_approved = 0
+        total_pending = 0
+        if kelas:
+            total_approved = db.query(models.KelasMahasiswa).filter(
+                models.KelasMahasiswa.id_kelas == kelas.id,
+                models.KelasMahasiswa.status == "approved"
+            ).count()
+            total_pending = db.query(models.KelasMahasiswa).filter(
+                models.KelasMahasiswa.id_kelas == kelas.id,
+                models.KelasMahasiswa.status == "pending"
+            ).count()
+
+        hasil.append({
+            "id_jadwal": j.id,
+            "id_kelas": kelas.id if kelas else None,
+            "nama_kelas": kelas.nama if kelas else "Belum terhubung ke kelas",
+            "kode_gabung": kelas.kode_gabung if kelas else None,
+            "nama_dosen": dosen.nama_dosen if dosen else j.id_dosen,
+            "hari": j.hari,
+            "jam": j.jam,
+            "aktif": j.aktif,
+            "total_mahasiswa": total_approved,
+            "total_pending": total_pending,
+        })
+
+    return {"mata_kuliah": mk.nama, "id_mata_kuliah": mk.id_mata_kuliah, "total": len(hasil), "data": hasil}
+
+
+# ===================== JADWAL =====================
+
 @app.post("/jadwal")
 def tambah_jadwal(
     id_dosen: str = Form(...),
+    id_kelas: int = Form(...),
     id_mata_kuliah: str = Form(...),
     hari: str = Form(...),
-    jam: str = Form(...),
+    jam_mulai: str = Form(...),
+    jam_selesai: str = Form(...),
+    toleransi_telat_menit: int = Form(30),
+    latitude: float = Form(...),
+    longitude: float = Form(...),
+    radius_meter: int = Form(200),
+    gps_aktif: bool = Form(True),
+    jumlah_gesture: int = Form(3),
+    mode_absensi: str = Form("tetap"),
+    daftar_jam_absensi: str = Form("[]"),
+    jumlah_sesi_acak: int = Form(1),
     db: Session = Depends(get_db)
 ):
     dosen = db.query(models.Dosen).filter(models.Dosen.id_dosen == id_dosen).first()
     if not dosen:
         return JSONResponse(status_code=404, content={"berhasil": False, "pesan": f"Dosen {id_dosen} tidak ditemukan"})
 
+    kelas = db.query(models.Kelas).filter(
+        models.Kelas.id == id_kelas, models.Kelas.id_dosen == id_dosen
+    ).first()
+    if not kelas:
+        return JSONResponse(status_code=404, content={"berhasil": False, "pesan": "Kelas tidak ditemukan"})
+
     mk = db.query(models.MataKuliah).filter(models.MataKuliah.id_mata_kuliah == id_mata_kuliah).first()
     if not mk:
         return JSONResponse(status_code=404, content={"berhasil": False, "pesan": f"Mata kuliah {id_mata_kuliah} tidak ditemukan"})
 
-    baru = models.Jadwal(id_dosen=id_dosen, id_mata_kuliah=id_mata_kuliah, hari=hari, jam=jam)
+    if mode_absensi == "acak":
+        jam_list = generate_jam_acak(jam_mulai, jam_selesai, jumlah_sesi_acak)
+    else:
+        try:
+            jam_list = json.loads(daftar_jam_absensi)
+        except (json.JSONDecodeError, TypeError):
+            jam_list = []
+
+    baru = models.Jadwal(
+        id_dosen=id_dosen,
+        id_kelas=id_kelas,
+        id_mata_kuliah=id_mata_kuliah,
+        hari=hari,
+        jam=f"{jam_mulai} - {jam_selesai}",
+        jam_mulai=jam_mulai,
+        jam_selesai=jam_selesai,
+        toleransi_telat_menit=max(0, toleransi_telat_menit),
+        latitude=latitude,
+        longitude=longitude,
+        radius_meter=radius_meter,
+        gps_aktif=gps_aktif,
+        jumlah_gesture=max(1, min(3, jumlah_gesture)),
+        mode_absensi=mode_absensi,
+        daftar_jam_absensi=json.dumps(jam_list),
+        jumlah_sesi_acak=jumlah_sesi_acak,
+        aktif=True,
+    )
     db.add(baru)
     db.commit()
     db.refresh(baru)
 
-    return {"berhasil": True, "pesan": "Jadwal berhasil ditambahkan", "data": {"id": baru.id, "id_dosen": baru.id_dosen, "id_mata_kuliah": baru.id_mata_kuliah, "hari": baru.hari, "jam": baru.jam}}
+    return {"berhasil": True, "pesan": "Jadwal berhasil ditambahkan", "data": _jadwal_to_dict(baru)}
+
+
+@app.put("/jadwal/{id_jadwal}")
+def update_jadwal(
+    id_jadwal: int,
+    id_kelas: int = Form(...),
+    id_mata_kuliah: str = Form(...),
+    hari: str = Form(...),
+    jam_mulai: str = Form(...),
+    jam_selesai: str = Form(...),
+    toleransi_telat_menit: int = Form(30),
+    latitude: float = Form(...),
+    longitude: float = Form(...),
+    radius_meter: int = Form(200),
+    gps_aktif: bool = Form(True),
+    jumlah_gesture: int = Form(3),
+    mode_absensi: str = Form("tetap"),
+    daftar_jam_absensi: str = Form("[]"),
+    jumlah_sesi_acak: int = Form(1),
+    db: Session = Depends(get_db)
+):
+    jadwal = db.query(models.Jadwal).filter(models.Jadwal.id == id_jadwal).first()
+    if not jadwal:
+        return JSONResponse(status_code=404, content={"berhasil": False, "pesan": "Jadwal tidak ditemukan"})
+
+    kelas = db.query(models.Kelas).filter(
+        models.Kelas.id == id_kelas, models.Kelas.id_dosen == jadwal.id_dosen
+    ).first()
+    if not kelas:
+        return JSONResponse(status_code=404, content={"berhasil": False, "pesan": "Kelas tidak ditemukan"})
+
+    mk = db.query(models.MataKuliah).filter(models.MataKuliah.id_mata_kuliah == id_mata_kuliah).first()
+    if not mk:
+        return JSONResponse(status_code=404, content={"berhasil": False, "pesan": f"Mata kuliah {id_mata_kuliah} tidak ditemukan"})
+
+    if mode_absensi == "acak":
+        jam_list = generate_jam_acak(jam_mulai, jam_selesai, jumlah_sesi_acak)
+    else:
+        try:
+            jam_list = json.loads(daftar_jam_absensi)
+        except (json.JSONDecodeError, TypeError):
+            jam_list = []
+
+    jadwal.id_kelas = id_kelas
+    jadwal.id_mata_kuliah = id_mata_kuliah
+    jadwal.hari = hari
+    jadwal.jam = f"{jam_mulai} - {jam_selesai}"
+    jadwal.jam_mulai = jam_mulai
+    jadwal.jam_selesai = jam_selesai
+    jadwal.toleransi_telat_menit = max(0, toleransi_telat_menit)
+    jadwal.latitude = latitude
+    jadwal.longitude = longitude
+    jadwal.radius_meter = radius_meter
+    jadwal.gps_aktif = gps_aktif
+    jadwal.jumlah_gesture = max(1, min(3, jumlah_gesture))
+    jadwal.mode_absensi = mode_absensi
+    jadwal.daftar_jam_absensi = json.dumps(jam_list)
+    jadwal.jumlah_sesi_acak = jumlah_sesi_acak
+
+    db.commit()
+    db.refresh(jadwal)
+
+    return {"berhasil": True, "pesan": "Jadwal berhasil diperbarui", "data": _jadwal_to_dict(jadwal)}
+
+
+@app.put("/jadwal/{id_jadwal}/lokasi")
+def update_lokasi_jadwal(
+    id_jadwal: int,
+    latitude: float = Form(...),
+    longitude: float = Form(...),
+    radius_meter: int = Form(200),
+    db: Session = Depends(get_db)
+):
+    jadwal = db.query(models.Jadwal).filter(models.Jadwal.id == id_jadwal).first()
+    if not jadwal:
+        return JSONResponse(status_code=404, content={"berhasil": False, "pesan": "Jadwal tidak ditemukan"})
+
+    jadwal.latitude = latitude
+    jadwal.longitude = longitude
+    jadwal.radius_meter = radius_meter
+    db.commit()
+    db.refresh(jadwal)
+
+    return {"berhasil": True, "pesan": "Lokasi jadwal berhasil diperbarui", "data": _jadwal_to_dict(jadwal)}
+
+
+@app.put("/jadwal/{id_jadwal}/toggle-aktif")
+def toggle_aktif_jadwal(id_jadwal: int, aktif: bool = Form(...), db: Session = Depends(get_db)):
+    jadwal = db.query(models.Jadwal).filter(models.Jadwal.id == id_jadwal).first()
+    if not jadwal:
+        return JSONResponse(status_code=404, content={"berhasil": False, "pesan": "Jadwal tidak ditemukan"})
+    jadwal.aktif = aktif
+    db.commit()
+    db.refresh(jadwal)
+    return {"berhasil": True, "pesan": "Status jadwal diperbarui", "data": _jadwal_to_dict(jadwal)}
 
 
 @app.get("/jadwal")
 def lihat_jadwal(db: Session = Depends(get_db)):
     semua = db.query(models.Jadwal).all()
-    return {"total": len(semua), "data": [{"id": j.id, "id_dosen": j.id_dosen, "id_mata_kuliah": j.id_mata_kuliah, "hari": j.hari, "jam": j.jam} for j in semua]}
+    return {
+        "total": len(semua),
+        "data": [_jadwal_to_dict(j) for j in semua]
+    }
 
 
 @app.get("/jadwal/detail")
@@ -169,15 +774,12 @@ def lihat_jadwal_detail(db: Session = Depends(get_db)):
     for j in semua:
         dosen = db.query(models.Dosen).filter(models.Dosen.id_dosen == j.id_dosen).first()
         mk = db.query(models.MataKuliah).filter(models.MataKuliah.id_mata_kuliah == j.id_mata_kuliah).first()
-        hasil.append({
-            "id": j.id,
-            "id_dosen": j.id_dosen,
-            "nama_dosen": dosen.nama_dosen if dosen else j.id_dosen,
-            "id_mata_kuliah": j.id_mata_kuliah,
-            "nama_mata_kuliah": mk.nama if mk else j.id_mata_kuliah,
-            "hari": j.hari,
-            "jam": j.jam,
-        })
+        kelas = db.query(models.Kelas).filter(models.Kelas.id == j.id_kelas).first()
+        data = _jadwal_to_dict(j)
+        data["nama_dosen"] = dosen.nama_dosen if dosen else j.id_dosen
+        data["nama_mata_kuliah"] = mk.nama if mk else j.id_mata_kuliah
+        data["nama_kelas"] = kelas.nama if kelas else None
+        hasil.append(data)
     return {"total": len(hasil), "data": hasil}
 
 
@@ -186,10 +788,15 @@ def hapus_jadwal(id_jadwal: int, db: Session = Depends(get_db)):
     jadwal = db.query(models.Jadwal).filter(models.Jadwal.id == id_jadwal).first()
     if not jadwal:
         return JSONResponse(status_code=404, content={"berhasil": False, "pesan": "Jadwal tidak ditemukan"})
+
+    db.query(models.Absensi).filter(models.Absensi.id_jadwal == id_jadwal).delete()
     db.delete(jadwal)
     db.commit()
-    return {"berhasil": True, "pesan": "Jadwal berhasil dihapus"}
 
+    return {"berhasil": True, "pesan": "Jadwal dan riwayat absensi terkait berhasil dihapus"}
+
+
+# ===================== MAHASISWA =====================
 
 @app.post("/mahasiswa")
 def tambah_mahasiswa(
@@ -213,8 +820,22 @@ def tambah_mahasiswa(
 
 @app.get("/mahasiswa")
 def lihat_mahasiswa(db: Session = Depends(get_db)):
-    semua = db.query(models.Mahasiswa).all()
-    return {"total": len(semua), "data": [{"id_mahasiswa": m.id_mahasiswa, "nama_mahasiswa": m.nama_mahasiswa, "angkatan": m.angkatan} for m in semua]}
+    semua = db.query(models.Mahasiswa).order_by(models.Mahasiswa.dibuat_pada.desc()).all()
+    return {
+        "total": len(semua),
+        "data": [
+            {
+                "id_mahasiswa": m.id_mahasiswa,
+                "nama_mahasiswa": m.nama_mahasiswa,
+                "email": m.email,
+                "angkatan": m.angkatan,
+                "dibuat_pada": str(m.dibuat_pada) if m.dibuat_pada else None,
+                "foto_url": _url_foto(m.foto_profil),
+            }
+            for m in semua
+        ]
+    }
+
 
 @app.get("/mahasiswa/{id_mahasiswa}")
 def lihat_satu_mahasiswa(id_mahasiswa: str, db: Session = Depends(get_db)):
@@ -224,8 +845,39 @@ def lihat_satu_mahasiswa(id_mahasiswa: str, db: Session = Depends(get_db)):
     return {
         "id_mahasiswa": mhs.id_mahasiswa,
         "nama_mahasiswa": mhs.nama_mahasiswa,
-        "email": mhs.email,
         "angkatan": mhs.angkatan,
+        "email": mhs.email,
+        "foto_url": _url_foto(mhs.foto_profil),
+    }
+
+
+@app.post("/mahasiswa/{id_mahasiswa}/foto")
+async def upload_foto_mahasiswa(id_mahasiswa: str, foto: UploadFile = File(...), db: Session = Depends(get_db)):
+    mhs = db.query(models.Mahasiswa).filter(models.Mahasiswa.id_mahasiswa == id_mahasiswa).first()
+    if not mhs:
+        return JSONResponse(status_code=404, content={"berhasil": False, "pesan": "Mahasiswa tidak ditemukan"})
+
+    ekstensi = os.path.splitext(foto.filename or "")[1].lower() or ".jpg"
+    if ekstensi not in EKSTENSI_FOTO_DIIZINKAN:
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Format file harus jpg, jpeg, png, atau webp"})
+
+    isi = await foto.read()
+    if len(isi) > 5 * 1024 * 1024:
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Ukuran foto maksimal 5MB"})
+
+    nama_file = f"mhs_{id_mahasiswa}{ekstensi}"
+    path_disk = os.path.join(UPLOAD_DIR, nama_file)
+    with open(path_disk, "wb") as f:
+        f.write(isi)
+
+    mhs.foto_profil = f"{UPLOAD_DIR}/{nama_file}"
+    db.commit()
+    db.refresh(mhs)
+
+    return {
+        "berhasil": True,
+        "pesan": "Foto profil berhasil diperbarui",
+        "foto_url": _url_foto(mhs.foto_profil),
     }
 
 
@@ -258,10 +910,160 @@ def update_mahasiswa(
         }
     }
 
+
+# ===================== STATISTIK & DASHBOARD DOSEN =====================
+
+@app.get("/dosen/{id_dosen}/ringkasan-absensi")
+def ringkasan_absensi_dosen(id_dosen: str, db: Session = Depends(get_db)):
+    jadwal_ids = [j.id for j in db.query(models.Jadwal.id).filter(models.Jadwal.id_dosen == id_dosen).all()]
+
+    total_mahasiswa = db.query(models.KelasMahasiswa).join(
+        models.Kelas, models.Kelas.id == models.KelasMahasiswa.id_kelas
+    ).filter(
+        models.Kelas.id_dosen == id_dosen,
+        models.KelasMahasiswa.status == "approved"
+    ).count()
+
+    if not jadwal_ids:
+        return {
+            "total_mahasiswa": total_mahasiswa,
+            "total_jadwal": 0,
+            "total_absensi": 0,
+            "total_hadir": 0,
+            "total_terlambat": 0,
+            "total_tidak_hadir": 0,
+            "hari_ini_hadir": 0,
+            "hari_ini_terlambat": 0,
+            "hari_ini_tidak_hadir": 0,
+        }
+
+    semua_absensi = db.query(models.Absensi).filter(models.Absensi.id_jadwal.in_(jadwal_ids)).all()
+
+    total_hadir = sum(1 for a in semua_absensi if a.status == "hadir")
+    total_terlambat = sum(1 for a in semua_absensi if a.status == "terlambat")
+    total_tidak_hadir = sum(1 for a in semua_absensi if a.status == "tidak_hadir")
+
+    hari_ini = datetime.now().date()
+    absensi_hari_ini = [a for a in semua_absensi if a.tanggal_absensi and a.tanggal_absensi.date() == hari_ini]
+
+    hari_ini_hadir = sum(1 for a in absensi_hari_ini if a.status == "hadir")
+    hari_ini_terlambat = sum(1 for a in absensi_hari_ini if a.status == "terlambat")
+    hari_ini_tidak_hadir = sum(1 for a in absensi_hari_ini if a.status == "tidak_hadir")
+
+    return {
+        "total_mahasiswa": total_mahasiswa,
+        "total_jadwal": len(jadwal_ids),
+        "total_absensi": len(semua_absensi),
+        "total_hadir": total_hadir,
+        "total_terlambat": total_terlambat,
+        "total_tidak_hadir": total_tidak_hadir,
+        "hari_ini_hadir": hari_ini_hadir,
+        "hari_ini_terlambat": hari_ini_terlambat,
+        "hari_ini_tidak_hadir": hari_ini_tidak_hadir,
+    }
+
+
+@app.get("/dosen/{id_dosen}/top-mahasiswa")
+def top_mahasiswa_dosen(id_dosen: str, limit: int = 5, db: Session = Depends(get_db)):
+    jadwal_ids = [j.id for j in db.query(models.Jadwal.id).filter(models.Jadwal.id_dosen == id_dosen).all()]
+    if not jadwal_ids:
+        return {"data": []}
+
+    total_pertemuan = 0
+    for jid in jadwal_ids:
+        tanggal_unik = db.query(func.date(models.Absensi.tanggal_absensi)).filter(
+            models.Absensi.id_jadwal == jid
+        ).distinct().count()
+        total_pertemuan += tanggal_unik
+
+    if total_pertemuan == 0:
+        return {"data": []}
+
+    semua_absensi = db.query(models.Absensi).filter(models.Absensi.id_jadwal.in_(jadwal_ids)).all()
+
+    hadir_per_mahasiswa: dict = {}
+    for a in semua_absensi:
+        if a.status == "hadir":
+            hadir_per_mahasiswa[a.id_mahasiswa] = hadir_per_mahasiswa.get(a.id_mahasiswa, 0) + 1
+
+    hasil = []
+    for id_mhs, jumlah_hadir in hadir_per_mahasiswa.items():
+        mhs = db.query(models.Mahasiswa).filter(models.Mahasiswa.id_mahasiswa == id_mhs).first()
+        if not mhs:
+            continue
+        persen = round(min((jumlah_hadir / total_pertemuan) * 100, 100), 1)
+        hasil.append({
+            "id_mahasiswa": id_mhs,
+            "nama_mahasiswa": mhs.nama_mahasiswa,
+            "angkatan": mhs.angkatan,
+            "jumlah_hadir": jumlah_hadir,
+            "persen_kehadiran": persen,
+        })
+
+    hasil.sort(key=lambda x: x["persen_kehadiran"], reverse=True)
+    return {"data": hasil[:limit]}
+
+
+@app.get("/dosen/{id_dosen}/tren-kehadiran")
+def tren_kehadiran_dosen(id_dosen: str, hari: int = 14, db: Session = Depends(get_db)):
+    jadwal_ids = [j.id for j in db.query(models.Jadwal.id).filter(models.Jadwal.id_dosen == id_dosen).all()]
+    if not jadwal_ids:
+        return {"data": []}
+
+    batas_awal = datetime.now() - timedelta(days=hari)
+    absensi_list = db.query(models.Absensi).filter(
+        models.Absensi.id_jadwal.in_(jadwal_ids),
+        models.Absensi.tanggal_absensi >= batas_awal
+    ).all()
+
+    per_tanggal: dict = {}
+    for a in absensi_list:
+        if not a.tanggal_absensi:
+            continue
+        key = a.tanggal_absensi.strftime("%Y-%m-%d")
+        if key not in per_tanggal:
+            per_tanggal[key] = {"hadir": 0, "terlambat": 0, "tidak_hadir": 0, "total": 0}
+        per_tanggal[key][a.status] = per_tanggal[key].get(a.status, 0) + 1
+        per_tanggal[key]["total"] += 1
+
+    hasil = []
+    for tanggal in sorted(per_tanggal.keys()):
+        d = per_tanggal[tanggal]
+        label = datetime.strptime(tanggal, "%Y-%m-%d").strftime("%d %b")
+        persen = round((d["hadir"] / d["total"]) * 100, 1) if d["total"] else 0
+        hasil.append({"tanggal": tanggal, "label": label, "persen_hadir": persen, "total": d["total"]})
+
+    return {"data": hasil}
+
+
+@app.get("/dosen/{id_dosen}/kehadiran-per-matkul")
+def kehadiran_per_matkul_dosen(id_dosen: str, db: Session = Depends(get_db)):
+    jadwal_list = db.query(models.Jadwal).filter(models.Jadwal.id_dosen == id_dosen).all()
+    if not jadwal_list:
+        return {"data": []}
+
+    hasil = []
+    for j in jadwal_list:
+        mk = db.query(models.MataKuliah).filter(models.MataKuliah.id_mata_kuliah == j.id_mata_kuliah).first()
+        absensi_list = db.query(models.Absensi).filter(models.Absensi.id_jadwal == j.id).all()
+        total = len(absensi_list)
+        hadir = sum(1 for a in absensi_list if a.status == "hadir")
+        persen = round((hadir / total) * 100, 1) if total else 0
+        hasil.append({
+            "id_jadwal": j.id,
+            "nama_mata_kuliah": mk.nama if mk else j.id_mata_kuliah,
+            "persen_hadir": persen,
+            "total_absensi": total,
+        })
+
+    return {"data": hasil}
+
+
+# ===================== DETEKSI WAJAH (TEST) =====================
+
 @app.post("/deteksi/wajah")
 async def test_deteksi_wajah(foto: UploadFile = File(...)):
     isi_file = await foto.read()
-
     hasil = proses_gambar_bytes(isi_file)
 
     return {
@@ -279,6 +1081,8 @@ async def test_deteksi_wajah(foto: UploadFile = File(...)):
         ]
     }
 
+
+# ===================== ABSENSI (MANUAL, TANPA FOTO) =====================
 
 @app.post("/absensi")
 def catat_absensi(
@@ -338,13 +1142,21 @@ def lihat_absensi(id_mata_kuliah: str, db: Session = Depends(get_db)):
 
 @app.get("/absensi/mahasiswa/{id_mahasiswa}")
 def lihat_riwayat_mahasiswa(id_mahasiswa: str, db: Session = Depends(get_db)):
-    daftar = db.query(models.Absensi).filter(
-        models.Absensi.id_mahasiswa == id_mahasiswa
-    ).order_by(models.Absensi.tanggal_absensi.desc()).all()
+    akun = db.query(models.UserAccount).filter(
+        models.UserAccount.user_id == id_mahasiswa,
+        models.UserAccount.role == "mahasiswa"
+    ).first()
+
+    query = db.query(models.Absensi).filter(models.Absensi.id_mahasiswa == id_mahasiswa)
+    if akun and akun.dibuat_pada:
+        query = query.filter(models.Absensi.tanggal_absensi >= akun.dibuat_pada)
+
+    daftar = query.order_by(models.Absensi.tanggal_absensi.desc()).all()
 
     hasil = []
     for a in daftar:
         mk = db.query(models.MataKuliah).filter(models.MataKuliah.id_mata_kuliah == a.id_mata_kuliah).first()
+        telat_info = format_telat_detik(a.telat_detik or 0)
         hasil.append({
             "id": a.id,
             "mata_kuliah": mk.nama if mk else a.id_mata_kuliah,
@@ -352,6 +1164,8 @@ def lihat_riwayat_mahasiswa(id_mahasiswa: str, db: Session = Depends(get_db)):
             "waktu": a.tanggal_absensi.strftime("%H:%M") if a.tanggal_absensi else "-",
             "status": a.status,
             "confidence": a.confidence,
+            "telat_detik": a.telat_detik or 0,
+            "telat_teks": telat_info["teks"],
         })
 
     total = len(daftar)
@@ -380,6 +1194,7 @@ def lihat_absensi_per_jadwal(id_jadwal: int, db: Session = Depends(get_db)):
     hasil = []
     for a in daftar_absensi:
         mhs = db.query(models.Mahasiswa).filter(models.Mahasiswa.id_mahasiswa == a.id_mahasiswa).first()
+        telat_info = format_telat_detik(a.telat_detik or 0)
         hasil.append({
             "id": a.id,
             "id_mahasiswa": a.id_mahasiswa,
@@ -388,6 +1203,8 @@ def lihat_absensi_per_jadwal(id_jadwal: int, db: Session = Depends(get_db)):
             "waktu": a.tanggal_absensi.strftime("%H:%M") if a.tanggal_absensi else "-",
             "status": a.status,
             "confidence": a.confidence,
+            "telat_detik": a.telat_detik or 0,
+            "telat_teks": telat_info["teks"],
         })
 
     return {
@@ -427,6 +1244,8 @@ def status_absensi_mahasiswa(id_jadwal: int, db: Session = Depends(get_db)):
         "data": hasil
     }
 
+
+# ===================== REGISTRASI & PENGENALAN WAJAH =====================
 
 @app.post("/mahasiswa/daftar-wajah")
 async def daftar_wajah(
@@ -468,104 +1287,6 @@ async def kenali_wajah_endpoint(
     hasil = kenali_identitas(isi_file, db)
     return hasil
 
-@app.post("/absensi/foto")
-async def absensi_foto(
-    id_jadwal: int = Form(...),
-    foto_list: List[UploadFile] = File(...),
-    db: Session = Depends(get_db)
-):
-    if len(foto_list) < 3:
-        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Minimal 3 frame diperlukan untuk pengecekan liveness gerakan"})
-
-    frames_decoded = []
-    for f in foto_list:
-        isi = await f.read()
-        np_array = np.frombuffer(isi, np.uint8)
-        gambar = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
-        if gambar is not None:
-            frames_decoded.append(gambar)
-
-    if len(frames_decoded) < 3:
-        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Gagal membaca frame gambar"})
-
-    # ===== STEP 1: Deteksi wajah di SETIAP frame untuk dapat bbox per frame =====
-    bbox_list = []
-    for frame in frames_decoded:
-        wajah_list = deteksi_wajah(frame, confidence_min=0.3)
-        if len(wajah_list) == 0:
-            return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Wajah tidak terdeteksi konsisten di seluruh frame, pastikan wajah tetap berada dalam frame kamera"})
-        bbox_list.append(wajah_list[0]["bbox"])
-
-    lebar_wajah_referensi = bbox_list[0][2] - bbox_list[0][0]
-
-    # ===== STEP 2: Liveness check berbasis gerakan =====
-    hasil_liveness = cek_liveness_gerakan(bbox_list, lebar_wajah_referensi)
-
-    print("=== LIVENESS GERAKAN DEBUG ===")
-    print(f"Lolos: {hasil_liveness['lolos']}")
-    print(f"Detail: {hasil_liveness['detail']}")
-    print("===============================")
-
-    if not hasil_liveness["lolos"]:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "berhasil": False,
-                "pesan": hasil_liveness["pesan"],
-                "liveness_detail": hasil_liveness["detail"]
-            }
-        )
-
-    # ===== STEP 3: Face Recognition pakai frame terakhir =====
-    crop_terakhir = crop_wajah(frames_decoded[-1], bbox_list[-1], padding=20)
-    _, buffer = cv2.imencode(".jpg", frames_decoded[-1])
-    isi_file_terakhir = buffer.tobytes()
-
-    hasil_kenali = kenali_identitas(isi_file_terakhir, db)
-
-    if not hasil_kenali["berhasil"]:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "berhasil": False,
-                "pesan": hasil_kenali["pesan"],
-                "confidence": hasil_kenali["confidence"]
-            }
-        )
-
-    jadwal = db.query(models.Jadwal).filter(models.Jadwal.id == id_jadwal).first()
-    if not jadwal:
-        return JSONResponse(
-            status_code=404,
-            content={"berhasil": False, "pesan": f"Jadwal ID {id_jadwal} tidak ditemukan"}
-        )
-
-    absensi_baru = models.Absensi(
-        id_mahasiswa=hasil_kenali["identitas"],
-        id_jadwal=id_jadwal,
-        id_mata_kuliah=jadwal.id_mata_kuliah,
-        lokasi_valid=False,
-        confidence=hasil_kenali["confidence"],
-        status="hadir"
-    )
-
-    db.add(absensi_baru)
-    db.commit()
-    db.refresh(absensi_baru)
-
-    return {
-        "berhasil": True,
-        "pesan": "Absensi berhasil dicatat",
-        "data": {
-            "id_mahasiswa": hasil_kenali["identitas"],
-            "nama": hasil_kenali["nama"],
-            "confidence": hasil_kenali["confidence"],
-            "liveness_detail": hasil_liveness["detail"],
-            "id_jadwal": id_jadwal,
-            "status": "hadir",
-            "waktu": str(absensi_baru.tanggal_absensi)
-        }
-    }
 
 # ===================== KELAS =====================
 
@@ -623,6 +1344,10 @@ def lihat_semua_kelas(id_dosen: str = None, db: Session = Depends(get_db)):
             models.KelasMahasiswa.id_kelas == k.id,
             models.KelasMahasiswa.status == "approved"
         ).count()
+        total_pending = db.query(models.KelasMahasiswa).filter(
+            models.KelasMahasiswa.id_kelas == k.id,
+            models.KelasMahasiswa.status == "pending"
+        ).count()
         hasil.append({
             "id": k.id,
             "nama": k.nama,
@@ -631,6 +1356,7 @@ def lihat_semua_kelas(id_dosen: str = None, db: Session = Depends(get_db)):
             "kode_gabung": k.kode_gabung,
             "id_dosen": k.id_dosen,
             "total_mahasiswa": total_approved,
+            "total_pending": total_pending,
         })
 
     return {"total": len(hasil), "data": hasil}
@@ -697,6 +1423,7 @@ def lihat_anggota_kelas(id_kelas: int, status: str = None, db: Session = Depends
             "angkatan": mhs.angkatan if mhs else None,
             "status": a.status,
             "bergabung_pada": str(a.bergabung_pada),
+            "foto_url": _url_foto(mhs.foto_profil) if mhs else None,
         })
 
     return {
@@ -725,3 +1452,392 @@ def kick_anggota(id_anggota: int, db: Session = Depends(get_db)):
     db.commit()
     return {"berhasil": True, "pesan": "Mahasiswa berhasil dikeluarkan dari kelas"}
 
+
+# ===================== LIVENESS: GESTURE CHALLENGE =====================
+
+gesture_challenge_store: dict = {}
+
+
+@app.post("/liveness/verifikasi-gesture")
+async def verifikasi_gesture(
+    gesture_token: str = Form(...),
+    gesture_index: int = Form(...),
+    foto_list: List[UploadFile] = File(...),
+):
+    if gesture_token not in gesture_challenge_store:
+        return JSONResponse(status_code=400, content={
+            "berhasil": False,
+            "pesan": "Token challenge tidak valid atau sudah kadaluarsa"
+        })
+
+    challenge = gesture_challenge_store[gesture_token]
+
+    if time.time() - challenge["timestamp"] > 300:
+        del gesture_challenge_store[gesture_token]
+        return JSONResponse(status_code=400, content={
+            "berhasil": False,
+            "pesan": "Sesi challenge sudah kadaluarsa"
+        })
+
+    gestures = challenge["gestures"]
+    if gesture_index >= len(gestures):
+        return JSONResponse(status_code=400, content={
+            "berhasil": False,
+            "pesan": "Indeks gesture tidak valid"
+        })
+
+    gesture_diminta = gestures[gesture_index]
+
+    frames_decoded = []
+    for f in foto_list:
+        isi = await f.read()
+        np_array = np.frombuffer(isi, np.uint8)
+        gambar = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
+        if gambar is not None:
+            frames_decoded.append(gambar)
+
+    if len(frames_decoded) < 2:
+        return JSONResponse(status_code=400, content={
+            "berhasil": False,
+            "pesan": "Gagal membaca frame gambar"
+        })
+
+    hasil_gesture = proses_gesture_challenge(frames_decoded, gesture_diminta)
+
+    if not hasil_gesture["lolos"]:
+        return JSONResponse(status_code=400, content={
+            "berhasil": False,
+            "pesan": f"Gesture '{INSTRUKSI_GESTURE[gesture_diminta]}' tidak terdeteksi: {hasil_gesture['alasan']}",
+            "gesture_detail": hasil_gesture
+        })
+
+    is_gesture_terakhir = gesture_index == len(gestures) - 1
+    if is_gesture_terakhir:
+        del gesture_challenge_store[gesture_token]
+
+    return {
+        "berhasil": True,
+        "pesan": f"Gesture {gesture_index + 1}/{len(gestures)} berhasil diverifikasi",
+        "selesai": is_gesture_terakhir,
+    }
+
+
+@app.get("/liveness/gesture-challenge-registrasi")
+def buat_gesture_challenge_registrasi():
+    gestures = generate_gesture_challenge_registrasi(3)
+    token = secrets.token_hex(16)
+    gesture_challenge_store[token] = {
+        "gestures": gestures,
+        "timestamp": time.time()
+    }
+    kadaluarsa = [k for k, v in gesture_challenge_store.items()
+                  if time.time() - v["timestamp"] > 300]
+    for k in kadaluarsa:
+        del gesture_challenge_store[k]
+
+    return {
+        "token": token,
+        "gestures": gestures,
+        "instruksi": [INSTRUKSI_GESTURE[g] for g in gestures]
+    }
+
+
+@app.get("/liveness/gesture-challenge")
+def buat_gesture_challenge(id_jadwal: int = None, db: Session = Depends(get_db)):
+    jumlah = 3
+    if id_jadwal is not None:
+        jadwal = db.query(models.Jadwal).filter(models.Jadwal.id == id_jadwal).first()
+        if not jadwal:
+            return JSONResponse(status_code=404, content={
+                "berhasil": False,
+                "pesan": f"Jadwal ID {id_jadwal} tidak ditemukan"
+            })
+
+        if jadwal.hari != hari_ini_label():
+            return JSONResponse(status_code=400, content={
+                "berhasil": False,
+                "pesan": f"Jadwal ini hanya berlaku pada hari {jadwal.hari}, bukan hari ini ({hari_ini_label()})"
+            })
+
+        if jadwal.jumlah_gesture:
+            jumlah = jadwal.jumlah_gesture
+
+    gestures = generate_gesture_challenge(jumlah)
+    token = secrets.token_hex(16)
+    gesture_challenge_store[token] = {
+        "gestures": gestures,
+        "timestamp": time.time()
+    }
+    kadaluarsa = [k for k, v in gesture_challenge_store.items()
+                  if time.time() - v["timestamp"] > 300]
+    for k in kadaluarsa:
+        del gesture_challenge_store[k]
+
+    return {
+        "token": token,
+        "gestures": gestures,
+        "instruksi": [INSTRUKSI_GESTURE[g] for g in gestures]
+    }
+
+
+@app.post("/absensi/foto")
+async def absensi_foto(
+    id_jadwal: int = Form(...),
+    id_mahasiswa: str = Form(...),
+    gesture_token: str = Form(...),
+    gesture_index: int = Form(...),
+    latitude: float = Form(...),
+    longitude: float = Form(...),
+    accuracy: float = Form(...),
+    altitude: float | None = Form(None),
+    foto_list: List[UploadFile] = File(...),
+    db: Session = Depends(get_db)
+):
+    if gesture_token not in gesture_challenge_store:
+        return JSONResponse(status_code=400, content={
+            "berhasil": False,
+            "pesan": "Token challenge tidak valid atau sudah kadaluarsa"
+        })
+
+    challenge = gesture_challenge_store[gesture_token]
+
+    if time.time() - challenge["timestamp"] > 300:
+        del gesture_challenge_store[gesture_token]
+        return JSONResponse(status_code=400, content={
+            "berhasil": False,
+            "pesan": "Sesi challenge sudah kadaluarsa"
+        })
+
+    gestures = challenge["gestures"]
+    if gesture_index >= len(gestures):
+        return JSONResponse(status_code=400, content={
+            "berhasil": False,
+            "pesan": "Indeks gesture tidak valid"
+        })
+
+    jadwal = db.query(models.Jadwal).filter(models.Jadwal.id == id_jadwal).first()
+    if not jadwal:
+        return JSONResponse(status_code=404, content={
+            "berhasil": False,
+            "pesan": f"Jadwal ID {id_jadwal} tidak ditemukan"
+        })
+
+    if not jadwal.aktif:
+        return JSONResponse(status_code=400, content={
+            "berhasil": False,
+            "pesan": "Jadwal ini sedang dinonaktifkan oleh dosen (tidak ada sesi absensi)"
+        })
+
+    now = datetime.now()
+    hari_sekarang = hari_ini_label()
+    if jadwal.hari != hari_sekarang:
+        return JSONResponse(status_code=400, content={
+            "berhasil": False,
+            "pesan": f"Jadwal ini hanya berlaku pada hari {jadwal.hari}, bukan hari ini ({hari_sekarang})"
+        })
+
+    try:
+        daftar_jam = json.loads(jadwal.daftar_jam_absensi) if jadwal.daftar_jam_absensi else []
+    except (json.JSONDecodeError, TypeError):
+        daftar_jam = []
+
+    jam_target_cocok = None
+    status_kehadiran = "hadir"
+    telat_detik = 0
+    toleransi_telat_menit = jadwal.toleransi_telat_menit if jadwal.toleransi_telat_menit is not None else 30
+
+    if not daftar_jam:
+        return JSONResponse(status_code=400, content={
+            "berhasil": False,
+            "pesan": "Jadwal ini belum memiliki jam absensi yang ditentukan dosen"
+        })
+
+    absensi_hari_ini = db.query(models.Absensi).filter(
+        models.Absensi.id_mahasiswa == id_mahasiswa,
+        models.Absensi.id_jadwal == id_jadwal,
+        func.date(models.Absensi.tanggal_absensi) == now.date()
+    ).all()
+    jam_target_sudah = {a.jam_target for a in absensi_hari_ini}
+
+    if len(jam_target_sudah) >= len(daftar_jam):
+        return JSONResponse(status_code=400, content={
+            "berhasil": False,
+            "pesan": "Anda sudah melakukan seluruh absensi untuk jadwal hari ini"
+        })
+
+    kandidat_terbaik = None
+    for jam_str in daftar_jam:
+        if jam_str in jam_target_sudah:
+            continue
+
+        try:
+            target_dt = datetime.strptime(jam_str, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
+        except ValueError:
+            continue
+
+        selisih_detik = (now - target_dt).total_seconds()
+
+        if selisih_detik >= -TOLERANSI_MENIT * 60:
+            if kandidat_terbaik is None or abs(selisih_detik) < abs(kandidat_terbaik[1]):
+                kandidat_terbaik = (jam_str, selisih_detik, target_dt)
+
+    if not kandidat_terbaik:
+        return JSONResponse(status_code=400, content={
+            "berhasil": False,
+            "pesan": (
+                f"Belum waktunya absensi. "
+                f"Jadwal absensi hari ini: {', '.join(daftar_jam)} "
+                f"(bisa absen mulai {TOLERANSI_MENIT} menit sebelum jam target)"
+            )
+        })
+
+    jam_target_cocok, selisih_detik, target_dt = kandidat_terbaik
+
+    try:
+        jam_selesai_dt = datetime.strptime(jadwal.jam_selesai, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
+        if jam_selesai_dt < target_dt:
+            jam_selesai_dt += timedelta(days=1)
+    except (ValueError, TypeError):
+        jam_selesai_dt = target_dt + timedelta(hours=2)
+
+    if selisih_detik <= toleransi_telat_menit * 60:
+        status_kehadiran = "hadir"
+        telat_detik = 0
+    elif now <= jam_selesai_dt:
+        status_kehadiran = "terlambat"
+        telat_detik = int(selisih_detik - (toleransi_telat_menit * 60))
+    else:
+        status_kehadiran = "tidak_hadir"
+        telat_detik = 0
+
+    if jadwal.gps_aktif:
+        target_lat = jadwal.latitude if jadwal.latitude is not None else KAMPUS_LAT
+        target_lon = jadwal.longitude if jadwal.longitude is not None else KAMPUS_LON
+        target_radius = jadwal.radius_meter if jadwal.radius_meter else RADIUS_KAMPUS_METER
+
+        hasil_gps = validasi_gps_lengkap(
+            id_mahasiswa=id_mahasiswa,
+            lat=latitude,
+            lon=longitude,
+            accuracy=accuracy,
+            target_lat=target_lat,
+            target_lon=target_lon,
+            radius_meter=target_radius,
+            altitude=altitude,
+        )
+
+        print(f"=== GPS DEBUG [{id_mahasiswa}] ===")
+        print(f"Lolos : {hasil_gps['lolos']}")
+        print(f"Pesan : {hasil_gps['pesan']}")
+        print("===================================")
+
+        if not hasil_gps["lolos"]:
+            return JSONResponse(status_code=400, content={
+                "berhasil": False,
+                "pesan": f"Validasi lokasi gagal: {hasil_gps['pesan']}",
+                "gps_detail": hasil_gps["detail"]
+            })
+        lokasi_valid_hasil = True
+    else:
+        lokasi_valid_hasil = None
+
+    gesture_diminta = gestures[gesture_index]
+
+    frames_decoded = []
+    for f in foto_list:
+        isi = await f.read()
+        np_array = np.frombuffer(isi, np.uint8)
+        gambar = cv2.imdecode(np_array, cv2.IMREAD_COLOR)
+        if gambar is not None:
+            frames_decoded.append(gambar)
+
+    if len(frames_decoded) < 2:
+        return JSONResponse(status_code=400, content={
+            "berhasil": False,
+            "pesan": "Gagal membaca frame gambar"
+        })
+
+    hasil_gesture = proses_gesture_challenge(frames_decoded, gesture_diminta)
+
+    print(f"=== GESTURE DEBUG [{gesture_diminta}] ===")
+    print(f"Lolos : {hasil_gesture['lolos']}")
+    print(f"Alasan: {hasil_gesture['alasan']}")
+    print(f"Detail: {hasil_gesture['detail']}")
+    print("==========================================")
+
+    if not hasil_gesture["lolos"]:
+        return JSONResponse(status_code=400, content={
+            "berhasil": False,
+            "pesan": f"Gesture '{INSTRUKSI_GESTURE[gesture_diminta]}' tidak terdeteksi: {hasil_gesture['alasan']}",
+            "gesture_detail": hasil_gesture
+        })
+
+    is_gesture_terakhir = gesture_index == len(gestures) - 1
+
+    if not is_gesture_terakhir:
+        return {
+            "berhasil": True,
+            "pesan": f"Gesture {gesture_index + 1}/{len(gestures)} berhasil",
+            "lanjut_gesture": True,
+            "gesture_berikutnya": gesture_index + 1
+        }
+
+    wajah_list = deteksi_wajah(frames_decoded[-1], confidence_min=0.3)
+    if len(wajah_list) == 0:
+        return JSONResponse(status_code=400, content={
+            "berhasil": False,
+            "pesan": "Wajah tidak terdeteksi untuk face recognition"
+        })
+
+    _, buffer = cv2.imencode(".jpg", frames_decoded[-1])
+    hasil_kenali = kenali_identitas(buffer.tobytes(), db, expected_id=id_mahasiswa)
+
+    if not hasil_kenali["berhasil"]:
+        return JSONResponse(status_code=400, content={
+            "berhasil": False,
+            "pesan": "Wajah tidak cocok dengan akun mahasiswa ini",
+            "confidence": hasil_kenali["confidence"]
+        })
+
+    del gesture_challenge_store[gesture_token]
+
+    absensi_baru = models.Absensi(
+        id_mahasiswa=id_mahasiswa,
+        id_jadwal=id_jadwal,
+        id_mata_kuliah=jadwal.id_mata_kuliah,
+        jam_target=jam_target_cocok,
+        latitude=latitude,
+        longitude=longitude,
+        lokasi_valid=lokasi_valid_hasil,
+        confidence=hasil_kenali["confidence"],
+        status=status_kehadiran,
+        telat_detik=telat_detik,
+    )
+    db.add(absensi_baru)
+    db.commit()
+    db.refresh(absensi_baru)
+
+    telat_info = format_telat_detik(telat_detik)
+
+    if status_kehadiran == "hadir":
+        pesan_sukses = "Absensi berhasil dicatat"
+    elif status_kehadiran == "terlambat":
+        pesan_sukses = f"Absensi berhasil dicatat ({telat_info['teks']})"
+    else:
+        pesan_sukses = "Absensi berhasil dicatat (Terhitung Tidak Hadir / Alfa)"
+
+    return {
+        "berhasil": True,
+        "pesan": pesan_sukses,
+        "selesai": True,
+        "data": {
+            "id_mahasiswa": hasil_kenali["identitas"],
+            "nama": hasil_kenali["nama"],
+            "confidence": hasil_kenali["confidence"],
+            "id_jadwal": id_jadwal,
+            "status": status_kehadiran,
+            "telat_detik": telat_detik,
+            "telat_teks": "Tidak Hadir / Alfa" if status_kehadiran == "tidak_hadir" else telat_info["teks"],
+            "waktu": str(absensi_baru.tanggal_absensi)
+        }
+    }

@@ -2,20 +2,20 @@ import Link from "next/link";
 
 export default function Home() {
   return (
-    <main className="min-h-screen flex items-center justify-center bg-gray-100">
-      <div className="bg-white p-8 rounded-xl shadow w-full max-w-md text-center">
-        <h1 className="text-3xl font-bold mb-2">Smart Attendance System</h1>
-        <p className="text-gray-600 mb-8">
+    <main className="min-h-screen flex items-center justify-center bg-gray-100 px-4">
+      <div className="w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-xl">
+        <h1 className="mb-2 text-3xl font-bold">Smart Attendance System</h1>
+        <p className="mb-8 text-gray-600">
           Sistem Absensi Otomatis Berbasis Computer Vision
         </p>
 
         <div className="flex flex-col gap-4">
-          <Link href="/mahasiswa" className="bg-blue-600 text-white py-3 rounded-lg">
-            Masuk sebagai Mahasiswa
+          <Link href="/auth/login" className="rounded-lg bg-blue-600 py-3 text-white">
+            Masuk ke Akun
           </Link>
 
-          <Link href="/dosen" className="bg-green-600 text-white py-3 rounded-lg">
-            Masuk sebagai Dosen
+          <Link href="/auth/register" className="rounded-lg bg-green-600 py-3 text-white">
+            Daftar Akun Baru
           </Link>
         </div>
       </div>

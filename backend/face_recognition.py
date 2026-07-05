@@ -111,7 +111,7 @@ def simpan_embedding(id_mahasiswa: str, id_foto: str, path_foto: str, image_byte
     }
 
 
-def kenali_wajah(image_bytes: bytes, db: Session, threshold: float = 0.5):
+def kenali_wajah(image_bytes: bytes, db: Session, expected_id: str | None = None, threshold: float = 0.5):
     embedding_input, error = generate_embedding(image_bytes)
 
     if embedding_input is None:
@@ -122,14 +122,16 @@ def kenali_wajah(image_bytes: bytes, db: Session, threshold: float = 0.5):
             "confidence": 0.0
         }
 
-    semua_foto = db.query(models.FotoWajah).filter(
-        models.FotoWajah.face_embedding != None
-    ).all()
+    query = db.query(models.FotoWajah).filter(models.FotoWajah.face_embedding != None)
+    if expected_id:
+        query = query.filter(models.FotoWajah.id_mahasiswa == expected_id)
+
+    semua_foto = query.all()
 
     if len(semua_foto) == 0:
         return {
             "berhasil": False,
-            "pesan": "Database embedding masih kosong",
+            "pesan": f"Belum ada data wajah terdaftar untuk akun ini" if expected_id else "Database embedding masih kosong",
             "identitas": None,
             "confidence": 0.0
         }
