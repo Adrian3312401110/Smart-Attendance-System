@@ -1,14 +1,10 @@
 {
-  "routes": [
+  "cleanUrls": true,
+  "redirects": [
     {
-      "src": "/(.*)",
-      "dest": "/$1"
-    }
-  ],
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/auth/login"
+      "source": "/",
+      "destination": "/auth/login",
+      "permanent": true
     }
   ]
 }
