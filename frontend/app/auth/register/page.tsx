@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Webcam from "react-webcam";
+import { API_URL } from "@/lib/api";
 
 const PASSWORD_RULES = /^(?=.{12,})(?=.*[^A-Za-z0-9]).+$/;
 
@@ -133,7 +134,7 @@ export default function RegisterPage() {
     frameBlobs.forEach((blob, i) => formData.append("foto_list", blob, `frame_${i}.jpg`));
 
     try {
-      const res = await fetch("http://localhost:8000/liveness/verifikasi-gesture", {
+      const res = await fetch(`${API_URL}/liveness/verifikasi-gesture`, {
         method: "POST",
         body: formData,
       });
@@ -179,7 +180,7 @@ export default function RegisterPage() {
     setGestureIndex(0);
 
     try {
-      const res = await fetch("http://localhost:8000/liveness/gesture-challenge-registrasi");
+      const res = await fetch(`${API_URL}/liveness/gesture-challenge-registrasi`);
       const data = await res.json();
       setChallenge(data);
       setGestureStatus(data.gestures.map((_: string, i: number) => ({ index: i, status: "pending" })));
@@ -221,7 +222,7 @@ export default function RegisterPage() {
           formData.append("foto_list", sample.blob, `sample_${index + 1}.jpg`);
         });
 
-        const res = await fetch("http://localhost:8000/auth/register-with-face", {
+        const res = await fetch(`${API_URL}/auth/register-with-face`, {
           method: "POST",
           body: formData,
         });
@@ -236,7 +237,7 @@ export default function RegisterPage() {
         return;
       }
 
-      const res = await fetch("http://localhost:8000/auth/register", {
+      const res = await fetch(`${API_URL}/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ ...form, angkatan: undefined }),
