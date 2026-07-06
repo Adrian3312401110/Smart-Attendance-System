@@ -134,7 +134,7 @@ app.add_middleware(
     allow_origins=[
     "http://localhost:3000",
     "http://127.0.0.1:3000",
-    "https://vercel.app"
+    "https://smart-attendance-system-roan-two.vercel.app"
 ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -148,10 +148,12 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 EKSTENSI_FOTO_DIIZINKAN = {".jpg", ".jpeg", ".png", ".webp"}
 
 
+BASE_URL = "https://Adrian3312401110-smart-attendance-backend.hf.space"
+
 def _url_foto(path_relatif: str | None) -> str | None:
     if not path_relatif:
         return None
-    return f"http://localhost:8000/{path_relatif}"
+    return f"{BASE_URL}/{path_relatif}"
 
 
 class RegisterRequest(BaseModel):
