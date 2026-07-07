@@ -28,6 +28,8 @@ from backend.gesture_detection import (
     load_gesture_model, INSTRUKSI_GESTURE,
     generate_gesture_challenge_registrasi,
 )
+from urllib.parse import urlparse
+from backend.database import DATABASE_URL
 
 TOLERANSI_MENIT = 15  # jendela "tepat waktu" (on time), tidak berubah
 
@@ -197,6 +199,17 @@ def homepage():
         "status": "berjalan",
         "database": "PostgreSQL",
         "ai_model": "YOLO11n-face (loaded)"
+    }
+
+@app.get("/debug/db-info")
+def debug_db_info():
+    parsed = urlparse(DATABASE_URL)
+    return {
+        "scheme": parsed.scheme,
+        "host": parsed.hostname,
+        "port": parsed.port,
+        "database": parsed.path.lstrip("/"),
+        "user": parsed.username,
     }
 
 
