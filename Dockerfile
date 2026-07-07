@@ -10,7 +10,7 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /code
 
 # 1. Salin requirements dari dalam folder backend lokal ke kontainer
-COPY ./backend/requirements.txt /code/requirements.txt
+COPY ./requirements.txt /code/requirements.txt
 
 # Instal semua library Python yang dibutuhkan aplikasi Anda
 RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
