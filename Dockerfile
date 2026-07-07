@@ -1,6 +1,6 @@
 FROM python:3.10-slim
 
-# Install dependensi sistem untuk OpenCV, GL, dan PostgreSQL client
+# Install dependensi sistem untuk OpenCV, GL, dan PostgreSQL
 RUN apt-get update && apt-get install -y \
     libgl1-mesa-glx \
     libglib2.0-0 \
@@ -9,15 +9,14 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /code
 
-# 1. Salin requirements dari dalam folder backend lokal ke kontainer
-COPY ./backend/requirements.txt /code/requirements.txt
+# SANGAT PENTING: Karena file ada di root, salin langsung dari root lokal (.)
+COPY ./requirements.txt /code/requirements.txt
 
-# Instal semua library Python yang dibutuhkan aplikasi Anda
+# Instal semua library Python
 RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 
-# 2. Salin seluruh folder backend lokal ke kontainer
+# Salin folder backend ke dalam kontainer
 COPY ./backend /code/backend
 
-# Jalankan server FastAPI menggunakan Uvicorn di port 7860 (Port wajib Hugging Face)
-# Catatan: Hapus argumen --reload untuk produksi di Hugging Face agar lebih stabil
+# Jalankan server FastAPI menggunakan Uvicorn di port wajib Hugging Face
 CMD ["uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "7860"]
