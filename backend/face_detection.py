@@ -12,7 +12,7 @@ def load_model():
         return _model
 
     print("Memuat model YOLO face detection...")
-    _model = YOLO("backend/models/yolo11n.pt")
+    _model = YOLO("yolo11n.pt")
     print("Model berhasil dimuat!")
 
     return _model
