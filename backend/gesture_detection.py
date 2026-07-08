@@ -2,8 +2,11 @@ import cv2
 import numpy as np
 import mediapipe as mp
 import secrets
+import mediapipe.python.solutions.face_mesh as face_mesh
+import mediapipe.python.solutions.drawing_utils as drawing_utils
+import mediapipe.python.solutions.hands as mp_hands
 
-mp_face_mesh = mp.solutions.face_mesh
+mp_face_mesh = face_mesh
 
 _face_mesh = None
 
