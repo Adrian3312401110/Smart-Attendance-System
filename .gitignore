@@ -1,0 +1,13 @@
+venv/
+.env
+__pycache__/
+*.pyc
+smart_attendance.system
+backend/models/yolo11n.pt
+backup.sql
+uploads/
+yolo11n.pt
+backup.sql
+uploads/
+*.pt
+*.sql

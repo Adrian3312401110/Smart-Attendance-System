@@ -1,0 +1,64 @@
+$kind: http-request
+name: "T07: Tambah Produk dengan Harga Nol"
+url: http://127.0.0.1:5000/products
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \  \"nama_barang\": \"Produk Gratis\",\r
+
+    \  \"deskripsi\": \"Edge case harga nol\",\r
+
+    \  \"harga\": 0,\r
+
+    \  \"stok\": 1\r
+
+    }"
+auth:
+  credentials:
+    - key: token
+      value: "{{access_token}}"
+  type: bearer
+scripts:
+  - type: afterResponse
+    code: "var jsonData = pm.response.json();\r
+
+      \r
+
+      // Assert kode status adalah 201\r
+
+      pm.test(\"Kode status adalah 201\", function () {\r
+
+      \    pm.response.to.have.status(201);\r
+
+      });\r
+
+      \r
+
+      // Assert produk berhasil ditambahkan\r
+
+      pm.test(\"Produk dengan harga nol berhasil ditambahkan\", function () {\r
+
+      \    pm.expect(jsonData).to.have.property('added_product');\r
+
+      });\r
+
+      \r
+
+      // Assert nilai harga yang tersimpan benar-benar 0\r
+
+      pm.test(\"Nilai harga tersimpan sebagai 0\", function () {\r
+
+      \    pm.expect(jsonData.added_product.harga).to.eql(0);\r
+
+      });\r
+
+      \r
+
+      // Simpan ID produk edge case untuk test berikutnya\r
+
+      pm.collectionVariables.set(\"id_produk_edge\",
+      jsonData.added_product.id);"
+    language: text/javascript
+order: 4300520129015905
