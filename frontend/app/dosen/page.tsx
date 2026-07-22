@@ -117,8 +117,8 @@ export default function DosenDashboardPage() {
       <SidebarNav role="dosen" />
 
       <div className="flex-1 flex flex-col">
-        <div className="bg-blue-700 dark:bg-blue-800 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
-          <span className="text-white font-semibold text-base">Smart Attendance System</span>
+        <div className="bg-blue-700 dark:bg-blue-800 pl-14 pr-4 py-3 lg:px-6 flex items-center justify-between sticky top-0 z-40">
+          <span className="text-white font-semibold text-sm sm:text-base truncate max-w-[120px] sm:max-w-none">Smart Attendance System</span>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 cursor-default">
               <div className="w-8 h-8 rounded-full bg-blue-400 flex items-center justify-center text-white font-semibold text-sm overflow-hidden">
@@ -132,7 +132,7 @@ export default function DosenDashboardPage() {
           </div>
         </div>
 
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           <p className="text-xs text-slate-400 dark:text-slate-500 mb-1">Dashboard /</p>
           <h1 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Dashboard Dosen</h1>
           <p className="text-xs text-slate-400 dark:text-slate-500 mb-5">Selamat datang kembali, {authUser?.name ?? "Dosen"}.</p>
@@ -186,8 +186,8 @@ export default function DosenDashboardPage() {
             <div className="flex justify-between items-center mb-4">
               <h2 className="font-semibold text-slate-800 dark:text-slate-100">Mahasiswa Terbaru Terdaftar</h2>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+              <table className="w-full min-w-[640px]">
                 <thead>
                   <tr className="text-left text-xs text-slate-400 dark:text-slate-500 uppercase border-b border-slate-100 dark:border-slate-800">
                     <th className="pb-3 px-3">No.</th>

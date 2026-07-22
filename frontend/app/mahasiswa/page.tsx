@@ -119,44 +119,45 @@ export default function MahasiswaPage() {
     <main className="min-h-screen bg-background text-foreground flex">
       <SidebarNav role="mahasiswa" />
 
-      <section className="flex-1 p-8">
-        <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <section className="flex-1 min-w-0 w-full p-4 pt-16 sm:p-6 sm:pt-16 lg:p-8 lg:pt-8">
+        <header className="mb-6 flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
             <p className="text-sm font-semibold text-blue-600 dark:text-blue-400">Selamat Datang Kembali 👋</p>
-            <h1 className="text-3xl font-bold">Dashboard Saya</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-2">
-              <Clock size={14} /> {time} &nbsp;|&nbsp; <Cloud size={14} /> Cuaca: Cerah Berawan
+            <h1 className="text-2xl sm:text-3xl font-bold">Dashboard Saya</h1>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 flex flex-wrap items-center gap-x-4 gap-y-1">
+              <span className="flex items-center gap-1"><Clock size={14} /> {time}</span>
+              <span className="flex items-center gap-1"><Cloud size={14} /> Cuaca: Cerah Berawan</span>
             </p>
             <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
               Lihat kelas yang diikuti, status absensi, dan ringkasan kehadiran Anda.
             </p>
           </div>
 
-          <div className="flex items-center gap-3 rounded-2xl bg-card text-card-foreground border border-border px-5 py-3 shadow">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 font-bold text-blue-600 dark:text-blue-300 overflow-hidden">
+          <div className="flex items-center gap-3 rounded-2xl bg-card text-card-foreground border border-border px-4 sm:px-5 py-3 shadow">
+            <div className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-900/40 font-bold text-blue-600 dark:text-blue-300 overflow-hidden">
               {fotoUrl ? (
                 <img src={fotoUrl} alt="Foto profil" className="w-full h-full object-cover" />
               ) : (
                 user?.name ? user.name.charAt(0).toUpperCase() : "M"
               )}
             </div>
-            <div>
-              <p className="font-bold">{user?.name ?? "Mahasiswa"}</p>
-              <p className="text-sm text-slate-500 dark:text-slate-400">{user?.id ?? "-"}</p>
+            <div className="min-w-0">
+              <p className="font-bold truncate">{user?.name ?? "Mahasiswa"}</p>
+              <p className="text-sm text-slate-500 dark:text-slate-400 truncate">{user?.id ?? "-"}</p>
             </div>
           </div>
         </header>
 
-        <section className="mb-6 grid grid-cols-4 gap-5">
+        <section className="mb-6 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
           <StatCard title="Kelas Diikuti" value={`${kelasApproved.length}`} color="border-blue-200 dark:border-blue-900" />
           <StatCard title="Kehadiran" value={`${persenKehadiran}%`} color="border-green-200 dark:border-green-900" />
           <StatCard title="Terlambat" value={`${riwayat?.terlambat ?? 0}`} color="border-yellow-200 dark:border-yellow-900" />
           <StatCard title="Tidak Hadir" value={`${riwayat?.tidak_hadir ?? 0}`} color="border-red-200 dark:border-red-900" />
         </section>
 
-        <section className="mb-6 grid grid-cols-3 gap-6">
-          <div className="rounded-2xl bg-card text-card-foreground border border-border p-6 shadow col-span-2">
-            <div className="mb-5 flex items-center justify-between">
+        <section className="mb-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="rounded-2xl bg-card text-card-foreground border border-border p-5 sm:p-6 shadow lg:col-span-2">
+            <div className="mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h2 className="text-xl font-bold">Kelas Saya</h2>
                 <p className="text-sm text-slate-500 dark:text-slate-400">
@@ -166,7 +167,7 @@ export default function MahasiswaPage() {
 
               <Link
                 href="/mahasiswa/ambil-absensi"
-                className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white"
+                className="inline-block text-center rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white"
               >
                 Ambil Absensi
               </Link>
@@ -192,13 +193,13 @@ export default function MahasiswaPage() {
           </div>
 
           <aside className="space-y-6">
-            <div className="rounded-2xl bg-card text-card-foreground border border-border p-6 shadow">
+            <div className="rounded-2xl bg-card text-card-foreground border border-border p-5 sm:p-6 shadow">
               <h2 className="mb-5 text-xl font-bold">Status Perangkat</h2>
               <DeviceStatus label="Kamera" value="Siap" />
               <DeviceStatus label="Registrasi Wajah" value="siap" />
             </div>
 
-            <div className="rounded-2xl bg-card text-card-foreground border border-border p-6 shadow">
+            <div className="rounded-2xl bg-card text-card-foreground border border-border p-5 sm:p-6 shadow">
               <h2 className="mb-5 text-xl font-bold">Pengumuman</h2>
               <Notice text="Pastikan kamera aktif sebelum mengambil absensi." />
               <Notice text="Registrasi wajah wajib diperbarui jika sistem meminta verifikasi ulang." />
@@ -207,8 +208,8 @@ export default function MahasiswaPage() {
           </aside>
         </section>
 
-        <section className="rounded-2xl bg-card text-card-foreground border border-border p-6 shadow">
-          <div className="mb-5 flex items-center justify-between">
+        <section className="rounded-2xl bg-card text-card-foreground border border-border p-5 sm:p-6 shadow">
+          <div className="mb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div>
               <h2 className="text-xl font-bold">Riwayat Singkat</h2>
               <p className="text-sm text-slate-500 dark:text-slate-400">Aktivitas absensi terakhir Anda.</p>
@@ -216,36 +217,38 @@ export default function MahasiswaPage() {
 
             <Link
               href="/mahasiswa/riwayat"
-              className="rounded-xl border border-blue-300 dark:border-blue-700 px-4 py-2 text-sm font-bold text-blue-600 dark:text-blue-400"
+              className="inline-block text-center rounded-xl border border-blue-300 dark:border-blue-700 px-4 py-2 text-sm font-bold text-blue-600 dark:text-blue-400"
             >
               Lihat Riwayat Saya
             </Link>
           </div>
 
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-border bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400">
-                <th className="p-4">Mata Kuliah</th>
-                <th className="p-4">Tanggal</th>
-                <th className="p-4">Waktu</th>
-                <th className="p-4">Status</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {!loading && riwayatTerbaru.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="p-6 text-center text-slate-400 dark:text-slate-500">
-                    Belum ada riwayat absensi.
-                  </td>
+          <div className="overflow-x-auto -mx-5 px-5 sm:mx-0 sm:px-0">
+            <table className="w-full min-w-[560px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-border bg-slate-50 dark:bg-slate-800/50 text-slate-500 dark:text-slate-400">
+                  <th className="p-4">Mata Kuliah</th>
+                  <th className="p-4">Tanggal</th>
+                  <th className="p-4">Waktu</th>
+                  <th className="p-4">Status</th>
                 </tr>
-              )}
+              </thead>
 
-              {riwayatTerbaru.map((r) => (
-                <RiwayatRow key={r.id} matkul={r.mata_kuliah} tanggal={r.tanggal} waktu={r.waktu} status={r.status} />
-              ))}
-            </tbody>
-          </table>
+              <tbody>
+                {!loading && riwayatTerbaru.length === 0 && (
+                  <tr>
+                    <td colSpan={4} className="p-6 text-center text-slate-400 dark:text-slate-500">
+                      Belum ada riwayat absensi.
+                    </td>
+                  </tr>
+                )}
+
+                {riwayatTerbaru.map((r) => (
+                  <RiwayatRow key={r.id} matkul={r.mata_kuliah} tanggal={r.tanggal} waktu={r.waktu} status={r.status} />
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       </section>
     </main>
@@ -254,9 +257,9 @@ export default function MahasiswaPage() {
 
 function StatCard({ title, value, color }: { title: string; value: string; color: string }) {
   return (
-    <div className={`rounded-2xl border bg-card text-card-foreground p-6 shadow ${color}`}>
-      <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">{title}</p>
-      <h2 className="mt-2 text-3xl font-bold">{value}</h2>
+    <div className={`rounded-2xl border bg-card text-card-foreground p-4 sm:p-6 shadow ${color}`}>
+      <p className="text-xs sm:text-sm font-semibold text-slate-500 dark:text-slate-400">{title}</p>
+      <h2 className="mt-2 text-2xl sm:text-3xl font-bold">{value}</h2>
     </div>
   );
 }
@@ -274,12 +277,12 @@ function KelasCard({
 }) {
   return (
     <div className="rounded-2xl border border-border bg-slate-50 dark:bg-slate-800/40 p-5">
-      <div className="flex justify-between items-center">
-        <div>
-          <div className="flex items-center gap-3">
+      <div className="flex justify-between items-start gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-bold">{nama}</h3>
             <span
-              className={`rounded-full px-3 py-1 text-xs font-semibold ${
+              className={`rounded-full px-3 py-1 text-xs font-semibold whitespace-nowrap ${
                 status === "approved"
                   ? "bg-green-100 dark:bg-green-900/50 text-green-600 dark:text-green-300"
                   : "bg-yellow-100 dark:bg-yellow-900/50 text-yellow-600 dark:text-yellow-300"
@@ -337,11 +340,11 @@ function RiwayatRow({
 
   return (
     <tr className="border-b border-border">
-      <td className="p-4 font-semibold">{matkul}</td>
-      <td className="p-4">{tanggal}</td>
-      <td className="p-4">{waktu}</td>
+      <td className="p-4 font-semibold whitespace-nowrap">{matkul}</td>
+      <td className="p-4 whitespace-nowrap">{tanggal}</td>
+      <td className="p-4 whitespace-nowrap">{waktu}</td>
       <td className="p-4">
-        <span className={`rounded-full px-3 py-1 text-xs font-bold ${style}`}>{label}</span>
+        <span className={`rounded-full px-3 py-1 text-xs font-bold whitespace-nowrap ${style}`}>{label}</span>
       </td>
     </tr>
   );

@@ -157,8 +157,8 @@ useEffect(() => {
       <div className="flex-1 flex flex-col">
 
         {/* Topbar */}
-        <div className="bg-blue-700 dark:bg-blue-800 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
-          <span className="text-white font-semibold text-base">Smart Attendance System</span>
+        <div className="bg-blue-700 dark:bg-blue-800 pl-14 pr-4 py-3 lg:px-6 flex items-center justify-between sticky top-0 z-40">
+          <span className="text-white font-semibold text-sm sm:text-base truncate max-w-[120px] sm:max-w-none">Smart Attendance System</span>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 cursor-default">
               <div className="w-8 h-8 rounded-full bg-blue-400 flex items-center justify-center text-white font-semibold text-sm overflow-hidden">{fotoUrl ? <img src={fotoUrl} alt="Foto" className="w-full h-full object-cover" /> : userInitials}</div>
@@ -170,7 +170,7 @@ useEffect(() => {
           </div>
         </div>
 
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Laporan / <span className="text-blue-600 dark:text-blue-400 font-medium">Data Absensi</span></p>
 
           {/* Pilih Jadwal */}
@@ -225,16 +225,14 @@ useEffect(() => {
               <h2 className="font-semibold text-slate-800 dark:text-slate-100 text-lg">
                 Kehadiran {selectedJadwalInfo ? selectedJadwalInfo.id_mata_kuliah : ""}
               </h2>
-              <div className="flex items-center gap-3">
-                <div className="relative">
-                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
-                  <input
-                    value={search}
-                    onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Cari mahasiswa..."
-                    className="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 rounded-lg pl-8 pr-4 py-1.5 text-sm outline-none w-44"
-                  />
-                </div>
+              <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto">
+                <div className="relative flex-1 min-w-[140px] sm:flex-none">
+      <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
+      <input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Cari mahasiswa..."
+                    className="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 rounded-lg pl-8 pr-4 py-1.5 text-sm outline-none w-full sm:w-44"/></div>
                 <select
                   value={filterStatus}
                   onChange={(e) => setFilterStatus(e.target.value)}
@@ -248,8 +246,8 @@ useEffect(() => {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+              <table className="w-full min-w-[640px]">
                 <thead>
                   <tr className="text-left text-xs text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800">
                     <th className="pb-3 px-3">ID</th>

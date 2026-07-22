@@ -330,10 +330,10 @@ useEffect(() => {
   return (
     <div className="flex min-h-screen bg-slate-100 dark:bg-slate-950">
       <SidebarNav role="dosen" />
-      <div className="flex-1 flex flex-col">
+      <div className="flex-1 flex flex-col min-w-0">
 
-        <div className="bg-blue-700 dark:bg-blue-800 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
-          <span className="text-white font-semibold text-base">Smart Attendance System</span>
+        <div className="bg-blue-700 dark:bg-blue-800 pl-14 pr-4 py-3 lg:px-6 flex items-center justify-between sticky top-0 z-40">
+          <span className="text-white font-semibold text-sm sm:text-base truncate max-w-[120px] sm:max-w-none">Smart Attendance System</span>
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 cursor-default">
               <div className="w-8 h-8 rounded-full bg-blue-400 flex items-center justify-center text-white font-semibold text-sm overflow-hidden">{fotoUrl ? <img src={fotoUrl} alt="Foto" className="w-full h-full object-cover" /> : userInitials}</div>
@@ -345,7 +345,7 @@ useEffect(() => {
           </div>
         </div>
 
-        <div className="p-6">
+        <div className="p-4 sm:p-6">
           <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Jadwal /</p>
 
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm p-5 border border-transparent dark:border-slate-800">
@@ -365,8 +365,8 @@ useEffect(() => {
               </div>
             </div>
 
-            <div className="overflow-x-auto">
-              <table className="w-full">
+            <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
+              <table className="w-full min-w-[960px]">
                 <thead>
                   <tr className="text-left text-xs text-slate-400 dark:text-slate-500 uppercase border-b border-slate-100 dark:border-slate-800">
                     <th className="pb-3 px-3">No.</th>
@@ -508,8 +508,8 @@ function FormJadwalModal({
   onHapusJam: (jam: string) => void;
 }) {
   return (
-    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center overflow-y-auto py-8">
-      <form onSubmit={onSubmit} className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-8 w-[30rem] relative border border-transparent dark:border-slate-800">
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center overflow-y-auto py-8 px-4">
+      <form onSubmit={onSubmit} className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 sm:p-8 w-[92vw] max-w-[30rem] relative border border-transparent dark:border-slate-800">
         <button type="button" onClick={onClose} className="absolute top-5 right-5 text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300">
           <X size={18} />
         </button>

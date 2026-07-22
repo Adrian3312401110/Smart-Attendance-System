@@ -2,6 +2,12 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+html,
+body {
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
 :root {
   --background: #f1f5f9;
   --foreground: #0f172a;
@@ -49,8 +55,6 @@ select {
   color: inherit;
 }
 
-button {
-/* Tombol dengan latar solid pekat → teks putih */
 button[class~="bg-blue-600"],
 button[class~="bg-blue-700"],
 button[class~="bg-green-600"],
@@ -59,5 +63,4 @@ button[class~="bg-red-500"],
 button[class~="bg-red-600"],
 button[class~="bg-[#1a1f36]"] {
   color: #ffffff;
-};
 }

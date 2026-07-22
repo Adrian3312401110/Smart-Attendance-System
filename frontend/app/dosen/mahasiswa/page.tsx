@@ -394,7 +394,7 @@ useEffect(() => {
       {/* Modal Add Class */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-8 w-96 border border-transparent dark:border-slate-800">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 sm:p-8 w-[92vw] max-w-sm border border-transparent dark:border-slate-800">
             {!kodeBerhasil ? (
               <form onSubmit={submitKelas}>
                 <h2 className="text-center font-bold text-slate-800 dark:text-slate-100 text-lg mb-6">Buat Kelas Baru</h2>
@@ -472,7 +472,7 @@ useEffect(() => {
       {/* Modal Edit Class */}
       {showEditModal && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-8 w-96 border border-transparent dark:border-slate-800">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 sm:p-8 w-[92vw] max-w-sm border border-transparent dark:border-slate-800">
             <form onSubmit={submitEditKelas}>
               <h2 className="text-center font-bold text-slate-800 dark:text-slate-100 text-lg mb-6">Edit Kelas</h2>
               <div className="space-y-4">
@@ -529,7 +529,7 @@ useEffect(() => {
       {/* Modal Detail Anggota Kelas */}
       {selectedKelas && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
-          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-6 w-[640px] max-h-[80vh] overflow-y-auto border border-transparent dark:border-slate-800">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-4 sm:p-6 w-[92vw] max-w-2xl max-h-[80vh] overflow-y-auto border border-transparent dark:border-slate-800">
             <div className="flex justify-between items-center mb-1">
               <h2 className="font-bold text-slate-800 dark:text-slate-100 text-lg">Anggota Kelas {selectedKelas.nama}</h2>
               <button onClick={() => setSelectedKelas(null)} className="text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 text-xl leading-none" title="Tutup">

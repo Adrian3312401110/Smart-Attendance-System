@@ -80,14 +80,12 @@ export default function RiwayatMahasiswaPage() {
     <main className="min-h-screen bg-background text-foreground flex">
       <SidebarNav role="mahasiswa" />
 
-      <section className="flex-1 p-8">
-        <header className="mb-6 flex justify-between items-start">
-          <div>
-            <h1 className="text-3xl font-bold">Riwayat Saya</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
-              Lihat riwayat absensi Anda per mata kuliah dan pertemuan.
-            </p>
-          </div>
+      <section className="flex-1 min-w-0 w-full p-4 pt-16 sm:p-6 sm:pt-16 lg:p-8 lg:pt-8">
+        <header className="mb-6">
+          <h1 className="text-2xl sm:text-3xl font-bold">Riwayat Saya</h1>
+          <p className="text-sm text-slate-500 dark:text-slate-400">
+            Lihat riwayat absensi Anda per mata kuliah dan pertemuan.
+          </p>
         </header>
 
         {errorMsg && (
@@ -96,7 +94,7 @@ export default function RiwayatMahasiswaPage() {
           </div>
         )}
 
-        <section className="mb-6 grid grid-cols-4 gap-5">
+        <section className="mb-6 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-5">
           <StatCard title="Total Pertemuan" value={riwayat?.total_pertemuan ?? 0} color="border-blue-200 dark:border-blue-900" />
           <StatCard title="Hadir" value={riwayat?.hadir ?? 0} color="border-green-200 dark:border-green-900" />
           <StatCard title="Terlambat" value={riwayat?.terlambat ?? 0} color="border-yellow-200 dark:border-yellow-900" />
@@ -104,7 +102,7 @@ export default function RiwayatMahasiswaPage() {
         </section>
 
         <section className="rounded-2xl bg-card text-card-foreground border border-border shadow overflow-hidden">
-          <div className="flex items-center justify-between border-b border-border p-6">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-border p-4 sm:p-6">
             <h2 className="text-xl font-bold">Riwayat Absensi</h2>
 
             <input
@@ -112,53 +110,55 @@ export default function RiwayatMahasiswaPage() {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Cari mata kuliah..."
-              className="w-64 rounded-xl border border-border px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-background text-foreground"
+              className="w-full sm:w-64 rounded-xl border border-border px-4 py-3 text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-background text-foreground"
             />
           </div>
 
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr className="bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400">
-                <th className="p-5">Mata Kuliah</th>
-                <th className="p-5">Tanggal</th>
-                <th className="p-5">Waktu</th>
-                <th className="p-5">Status</th>
-                <th className="p-5">Akurasi</th>
-              </tr>
-            </thead>
-
-            <tbody>
-              {loading && (
-                <tr>
-                  <td colSpan={5} className="p-6 text-center text-slate-400 dark:text-slate-500">
-                    Memuat data...
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-800/50 text-slate-600 dark:text-slate-400">
+                  <th className="p-4 sm:p-5">Mata Kuliah</th>
+                  <th className="p-4 sm:p-5">Tanggal</th>
+                  <th className="p-4 sm:p-5">Waktu</th>
+                  <th className="p-4 sm:p-5">Status</th>
+                  <th className="p-4 sm:p-5">Akurasi</th>
                 </tr>
-              )}
+              </thead>
 
-              {!loading && !errorMsg && filtered.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="p-6 text-center text-slate-400 dark:text-slate-500">
-                    Belum ada riwayat absensi.
-                  </td>
-                </tr>
-              )}
+              <tbody>
+                {loading && (
+                  <tr>
+                    <td colSpan={5} className="p-6 text-center text-slate-400 dark:text-slate-500">
+                      Memuat data...
+                    </td>
+                  </tr>
+                )}
 
-              {filtered.map((item) => (
-                <tr key={item.id} className="border-t border-border">
-                  <td className="p-5 font-semibold">{item.mata_kuliah}</td>
-                  <td className="p-5">{item.tanggal}</td>
-                  <td className="p-5">{item.waktu}</td>
-                  <td className="p-5">
-                    <StatusBadge status={item.status} />
-                  </td>
-                  <td className="p-5">
-                    {item.confidence !== null ? `${(item.confidence * 100).toFixed(1)}%` : "-"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+                {!loading && !errorMsg && filtered.length === 0 && (
+                  <tr>
+                    <td colSpan={5} className="p-6 text-center text-slate-400 dark:text-slate-500">
+                      Belum ada riwayat absensi.
+                    </td>
+                  </tr>
+                )}
+
+                {filtered.map((item) => (
+                  <tr key={item.id} className="border-t border-border">
+                    <td className="p-4 sm:p-5 font-semibold whitespace-nowrap">{item.mata_kuliah}</td>
+                    <td className="p-4 sm:p-5 whitespace-nowrap">{item.tanggal}</td>
+                    <td className="p-4 sm:p-5 whitespace-nowrap">{item.waktu}</td>
+                    <td className="p-4 sm:p-5">
+                      <StatusBadge status={item.status} />
+                    </td>
+                    <td className="p-4 sm:p-5 whitespace-nowrap">
+                      {item.confidence !== null ? `${(item.confidence * 100).toFixed(1)}%` : "-"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </section>
       </section>
     </main>
@@ -167,9 +167,9 @@ export default function RiwayatMahasiswaPage() {
 
 function StatCard({ title, value, color }: { title: string; value: number; color: string }) {
   return (
-    <div className={`rounded-2xl border bg-card text-card-foreground p-6 shadow ${color}`}>
-      <p className="text-sm font-semibold text-slate-500 dark:text-slate-400">{title}</p>
-      <h2 className="mt-3 text-3xl font-bold">{value}</h2>
+    <div className={`rounded-2xl border bg-card text-card-foreground p-4 sm:p-6 shadow ${color}`}>
+      <p className="text-xs sm:text-sm font-semibold text-slate-500 dark:text-slate-400">{title}</p>
+      <h2 className="mt-2 sm:mt-3 text-2xl sm:text-3xl font-bold">{value}</h2>
     </div>
   );
 }
@@ -186,7 +186,7 @@ function StatusBadge({ status }: { status: string }) {
     status === "hadir" ? "Hadir" : status === "terlambat" ? "Terlambat" : "Tidak Hadir";
 
   return (
-    <span className={`rounded-full px-3 py-1 text-xs font-bold ${style}`}>
+    <span className={`rounded-full px-3 py-1 text-xs font-bold whitespace-nowrap ${style}`}>
       {label}
     </span>
   );
