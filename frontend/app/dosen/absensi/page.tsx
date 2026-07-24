@@ -3,8 +3,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Search, Bell, Maximize, ChevronDown, Sun,
-  SlidersHorizontal, Clock, UserX, Eye, Moon, UserMinus, Users
+  Search, Sun, Cloud,
+  Clock, UserX, Eye, Users
 } from "lucide-react";
 import SidebarNav from "@/components/SidebarNav";
 
@@ -55,6 +55,7 @@ export default function DosenAbsensiPage() {
   const [selectedJadwal, setSelectedJadwal] = useState<string>("");
   const [absensiData, setAbsensiData] = useState<AbsensiJadwalData | null>(null);
   const [search, setSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState("semua");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -119,8 +120,8 @@ useEffect(() => {
       .finally(() => setLoading(false));
   }, [selectedJadwal]);
 
-  const todayShort = new Date().toLocaleDateString("en-GB", {
-    day: "numeric", month: "long", year: "numeric",
+  const todayShort = new Date().toLocaleDateString("id-ID", {
+    weekday: "long", day: "numeric", month: "long", year: "numeric",
   });
   const userInitials = (authUser?.name ?? "D")
     .split(" ")
@@ -129,14 +130,17 @@ useEffect(() => {
     .slice(0, 2)
     .toUpperCase();
 
-  const rows = absensiData?.data ?? [];
-  const filteredRows = search
-    ? rows.filter((r) => r.nama_mahasiswa.toLowerCase().includes(search.toLowerCase()))
-    : rows;
+  let filteredRows = absensiData?.data ?? [];
+  if (search) {
+    filteredRows = filteredRows.filter((r) => r.nama_mahasiswa.toLowerCase().includes(search.toLowerCase()));
+  }
+  if (filterStatus !== "semua") {
+    filteredRows = filteredRows.filter((r) => r.status === filterStatus);
+  }
 
   const totalHadir = absensiData?.hadir ?? 0;
-  const totalTerlambat = rows.filter((r) => r.status === "terlambat").length;
-  const totalTidakHadir = rows.filter((r) => r.status === "tidak_hadir").length;
+  const totalTerlambat = (absensiData?.data ?? []).filter((r) => r.status === "terlambat").length;
+  const totalTidakHadir = (absensiData?.data ?? []).filter((r) => r.status === "tidak_hadir").length;
 
   const stats = [
     { label: "Total Mahasiswa Tercatat", value: absensiData?.total ?? 0, icon: Users, color: "bg-blue-100 text-blue-600 dark:bg-blue-950/50 dark:text-blue-300", change: "Untuk jadwal terpilih", up: true },
@@ -156,26 +160,18 @@ useEffect(() => {
         <div className="bg-blue-700 dark:bg-blue-800 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
           <span className="text-white font-semibold text-base">Smart Attendance System</span>
           <div className="flex items-center gap-3">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/60" />
-              <input placeholder="Quick Search..." className="bg-white/20 text-white placeholder-white/60 text-sm rounded-full pl-8 pr-4 py-1.5 outline-none w-48" />
-            </div>
-            <Bell size={16} className="text-white cursor-pointer" />
-            <Maximize size={16} className="text-white cursor-pointer" />
-            <div className="flex items-center gap-2 cursor-pointer">
+            <div className="flex items-center gap-2 cursor-default">
               <div className="w-8 h-8 rounded-full bg-blue-400 flex items-center justify-center text-white font-semibold text-sm overflow-hidden">{fotoUrl ? <img src={fotoUrl} alt="Foto" className="w-full h-full object-cover" /> : userInitials}</div>
-
               <div className="text-left">
                 <p className="text-white text-xs font-medium">{authUser?.name ?? "Dosen"}</p>
                 <p className="text-white/70 text-[11px]">{authUser?.email ?? "-"}</p>
               </div>
-              <ChevronDown size={12} className="text-white" />
             </div>
           </div>
         </div>
 
         <div className="p-6">
-          <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Reports /</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Laporan / <span className="text-blue-600 dark:text-blue-400 font-medium">Data Absensi</span></p>
 
           {/* Pilih Jadwal */}
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm p-5 mb-6 border border-transparent dark:border-slate-800">
@@ -198,11 +194,14 @@ useEffect(() => {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
             <div className="bg-blue-700 dark:bg-blue-800 rounded-xl p-4 text-white">
               <div className="flex items-center gap-2 mb-1">
-                <Sun size={16} />
-                <span className="text-lg font-bold">{time}</span>
+                <Sun size={18} />
+                <span className="text-xl font-bold">{time}</span>
               </div>
-              <p className="text-xs text-blue-200 mt-1">Today:</p>
+              <p className="text-xs text-blue-200 mt-2">Hari ini:</p>
               <p className="text-sm font-medium">{todayShort}</p>
+              <p className="text-xs text-blue-200 mt-2 flex items-center gap-1">
+                <Cloud size={12} /> Cuaca: Cerah Berawan
+              </p>
             </div>
             {stats.map((s) => (
               <div key={s.label} className="bg-white dark:bg-slate-900 rounded-xl p-4 shadow-sm border border-transparent dark:border-slate-800">
@@ -236,9 +235,16 @@ useEffect(() => {
                     className="border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 rounded-lg pl-8 pr-4 py-1.5 text-sm outline-none w-44"
                   />
                 </div>
-                <button className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg px-3 py-1.5 text-sm font-medium transition-colors">
-                  <SlidersHorizontal size={13} /> Advanced Filters
-                </button>
+                <select
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                  className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 rounded-lg px-3 py-1.5 text-sm font-medium outline-none transition-colors"
+                >
+                  <option value="semua">Semua Status</option>
+                  <option value="hadir">Hadir</option>
+                  <option value="terlambat">Terlambat</option>
+                  <option value="tidak_hadir">Alfa / Tidak Hadir</option>
+                </select>
               </div>
             </div>
 

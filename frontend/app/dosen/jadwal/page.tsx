@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import dynamic from "next/dynamic";
 import {
-  Search, Bell, Maximize, ChevronDown,
   Plus, Trash2, Pencil, MapPin, X
 } from "lucide-react";
 import SidebarNav from "@/components/SidebarNav";
@@ -322,7 +321,7 @@ useEffect(() => {
     }
   }
 
-  const today = new Date().toLocaleDateString("en-GB", {
+  const today = new Date().toLocaleDateString("id-ID", {
     weekday: "long", day: "numeric", month: "long", year: "numeric",
   });
   const userInitials = (authUser?.name ?? "D")
@@ -336,25 +335,18 @@ useEffect(() => {
         <div className="bg-blue-700 dark:bg-blue-800 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
           <span className="text-white font-semibold text-base">Smart Attendance System</span>
           <div className="flex items-center gap-3">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/60" />
-              <input placeholder="Quick Search..." className="bg-white/20 text-white placeholder-white/60 text-sm rounded-full pl-8 pr-4 py-1.5 outline-none w-48" />
-            </div>
-            <Bell size={16} className="text-white cursor-pointer" />
-            <Maximize size={16} className="text-white cursor-pointer" />
-            <div className="flex items-center gap-2 cursor-pointer">
+            <div className="flex items-center gap-2 cursor-default">
               <div className="w-8 h-8 rounded-full bg-blue-400 flex items-center justify-center text-white font-semibold text-sm overflow-hidden">{fotoUrl ? <img src={fotoUrl} alt="Foto" className="w-full h-full object-cover" /> : userInitials}</div>
               <div className="text-left">
                 <p className="text-white text-xs font-medium">{authUser?.name ?? "Dosen"}</p>
                 <p className="text-white/70 text-[11px]">{authUser?.email ?? "-"}</p>
               </div>
-              <ChevronDown size={12} className="text-white" />
             </div>
           </div>
         </div>
 
         <div className="p-6">
-          <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Class List /</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Jadwal /</p>
 
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm p-5 border border-transparent dark:border-slate-800">
             <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
@@ -368,7 +360,7 @@ useEffect(() => {
                 <h2 className="font-semibold text-slate-800 dark:text-slate-100">Daftar Jadwal Kelas</h2>
               </div>
               <div className="text-right">
-                <p className="text-xs text-slate-400 dark:text-slate-500">Today:</p>
+                <p className="text-xs text-slate-400 dark:text-slate-500">Hari ini:</p>
                 <p className="text-xs font-semibold text-slate-700 dark:text-slate-300">{today}</p>
               </div>
             </div>

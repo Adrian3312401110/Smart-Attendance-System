@@ -130,7 +130,7 @@ def ekstrak_fitur_dari_frame(frame: np.ndarray) -> dict | None:
 
 # ===================== DETEKSI PER GESTURE =====================
 
-def deteksi_senyum(fitur_list: list[dict], ambang: float = 2.8) -> dict:
+def deteksi_senyum(fitur_list: list[dict], ambang: float = 3.8) -> dict:
     skor_list = [f["skor_senyum"] for f in fitur_list]
     maks = max(skor_list)
     lolos = maks >= ambang

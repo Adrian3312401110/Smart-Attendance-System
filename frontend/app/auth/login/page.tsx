@@ -5,6 +5,19 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { API_URL } from "@/lib/api";
 
+const DOMAIN_DIIZINKAN = ["gmail.com", "polibatam.ac.id"];
+
+function validateEmail(email: string): string | null {
+  const trimmed = email.trim().toLowerCase();
+  const parts = trimmed.split("@");
+  if (parts.length !== 2 || !parts[0]) return "Format email tidak valid.";
+  const domain = parts[1];
+  if (!DOMAIN_DIIZINKAN.includes(domain)) {
+    return `Domain '${domain}' tidak diizinkan. Gunakan email dengan domain: ${DOMAIN_DIIZINKAN.join(" atau ")}.`;
+  }
+  return null;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [form, setForm] = useState({ email: "", password: "" });
@@ -15,6 +28,13 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError("");
+
+    const emailErr = validateEmail(form.email);
+    if (emailErr) {
+      setError(emailErr);
+      setLoading(false);
+      return;
+    }
 
     try {
       const res = await fetch(`${API_URL}/auth/login`, {

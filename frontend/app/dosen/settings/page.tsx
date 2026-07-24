@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Search, Bell, Maximize, ChevronDown, Camera, Lock } from "lucide-react";
+import { Lock } from "lucide-react";
 import SidebarNav from "@/components/SidebarNav";
 
 interface AuthUser {
@@ -22,9 +22,6 @@ export default function DosenSettingsPage() {
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const [fotoUrl, setFotoUrl] = useState<string | null>(null);
-  const [uploadingFoto, setUploadingFoto] = useState(false);
-  const [fotoError, setFotoError] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [passwordLama, setPasswordLama] = useState("");
   const [passwordBaru, setPasswordBaru] = useState("");
@@ -103,44 +100,7 @@ export default function DosenSettingsPage() {
     }
   }
 
-  async function handleFotoChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !authUser?.id) return;
 
-    if (!file.type.startsWith("image/")) {
-      setFotoError("File harus berupa gambar");
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      setFotoError("Ukuran gambar maksimal 5MB");
-      return;
-    }
-
-    setFotoError("");
-    setUploadingFoto(true);
-    try {
-      const body = new FormData();
-      body.append("foto", file);
-
-      const res = await fetch(`http://localhost:8000/dosen/${authUser.id}/foto`, {
-        method: "POST",
-        body,
-      });
-      const data = await res.json();
-
-      if (!res.ok || data.berhasil === false) {
-        setFotoError(data.pesan ?? "Gagal mengunggah foto");
-        return;
-      }
-
-      setFotoUrl(`${data.foto_url}?t=${Date.now()}`);
-    } catch {
-      setFotoError("Tidak dapat terhubung ke server");
-    } finally {
-      setUploadingFoto(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }
 
   async function ubahPassword(e: React.FormEvent) {
     e.preventDefault();
@@ -208,13 +168,7 @@ export default function DosenSettingsPage() {
         <div className="bg-blue-700 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
           <span className="text-white font-semibold text-base">Smart Attendance System</span>
           <div className="flex items-center gap-3">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/60" />
-              <input placeholder="Quick Search..." className="bg-white/20 text-white placeholder-white/60 text-sm rounded-full pl-8 pr-4 py-1.5 outline-none w-48" />
-            </div>
-            <Bell size={16} className="text-white cursor-pointer" />
-            <Maximize size={16} className="text-white cursor-pointer" />
-            <div className="flex items-center gap-2 cursor-pointer">
+            <div className="flex items-center gap-2 cursor-default">
               <div className="w-8 h-8 rounded-full bg-blue-400 flex items-center justify-center text-white font-semibold text-sm overflow-hidden">
                 {fotoUrl ? <img src={fotoUrl} alt="Foto" className="w-full h-full object-cover" /> : userInitials}
               </div>
@@ -222,13 +176,12 @@ export default function DosenSettingsPage() {
                 <p className="text-white text-xs font-medium">{authUser?.name ?? "Dosen"}</p>
                 <p className="text-white/70 text-[11px]">{authUser?.email ?? "-"}</p>
               </div>
-              <ChevronDown size={12} className="text-white" />
             </div>
           </div>
         </div>
 
         <div className="p-6 space-y-6">
-          <p className="text-xs text-slate-400 dark:text-slate-500">Setting /</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500">Pengaturan /</p>
 
           {/* Profil */}
           <div className="bg-card text-card-foreground border border-border rounded-xl shadow-sm p-8">
@@ -248,7 +201,7 @@ export default function DosenSettingsPage() {
             ) : (
               <>
                 {/* Avatar */}
-                <div className="relative w-24 h-24 mb-2">
+                <div className="relative w-24 h-24 mb-6">
                   <div className="w-24 h-24 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
                     {fotoUrl ? (
                       <img src={fotoUrl} alt="Foto profil" className="w-full h-full object-cover" />
@@ -258,31 +211,7 @@ export default function DosenSettingsPage() {
                       </svg>
                     )}
                   </div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFotoChange}
-                    className="hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploadingFoto}
-                    title="Ubah foto profil"
-                    className="absolute bottom-0 right-0 w-8 h-8 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center text-white transition-colors disabled:opacity-50 ring-2 ring-white dark:ring-slate-900"
-                  >
-                    <Camera size={14} />
-                  </button>
                 </div>
-
-                {uploadingFoto && (
-                  <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Mengunggah foto...</p>
-                )}
-                {fotoError && (
-                  <p className="text-xs text-red-500 dark:text-red-400 mb-4">{fotoError}</p>
-                )}
-                {!uploadingFoto && !fotoError && <div className="mb-4" />}
 
                 {/* Form */}
                 <div className="space-y-5 max-w-sm">

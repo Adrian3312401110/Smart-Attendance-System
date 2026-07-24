@@ -22,9 +22,11 @@ interface LocationPickerProps {
 }
 
 function ClickHandler({ onChange }: { onChange: (lat: number, lon: number) => void }) {
+  const map = useMap();
   useMapEvents({
     click(e) {
       onChange(e.latlng.lat, e.latlng.lng);
+      map.flyTo(e.latlng, map.getZoom());
     },
   });
   return null;
@@ -134,13 +136,13 @@ export default function LocationPicker({ lat, lon, radius, onChange }: LocationP
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={handleKeyDown}
           placeholder="Cari lokasi, misal: Masjid Raya Batam..."
-          className="w-full border border-slate-200 rounded-lg pl-8 pr-16 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+          className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 rounded-lg pl-8 pr-20 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
         />
         <button
           type="button"
           onClick={cariLokasi}
           disabled={searching}
-          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-xs font-semibold text-blue-600 px-2 py-1 disabled:opacity-50"
+          className="absolute right-1.5 top-1/2 -translate-y-1/2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-1.5 rounded-md transition-colors disabled:opacity-50"
         >
           {searching ? "..." : "Cari"}
         </button>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Cloud, Clock } from "lucide-react";
 import SidebarNav from "@/components/SidebarNav";
 
 interface AuthUser {
@@ -27,6 +28,22 @@ interface RiwayatData {
 export default function MahasiswaPage() {
   const [user, setUser] = useState<AuthUser | null>(null);
   const [fotoUrl, setFotoUrl] = useState<string | null>(null);
+  const [time, setTime] = useState("");
+
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      let h = now.getHours();
+      const m = String(now.getMinutes()).padStart(2, "0");
+      const s = String(now.getSeconds()).padStart(2, "0");
+      const ampm = h >= 12 ? "PM" : "AM";
+      h = h % 12 || 12;
+      setTime(`${h}:${m}:${s} ${ampm}`);
+    };
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, []);
   const [kelasSaya, setKelasSaya] = useState<KelasSaya[]>([]);
   const [riwayat, setRiwayat] = useState<RiwayatData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -103,11 +120,14 @@ export default function MahasiswaPage() {
       <SidebarNav role="mahasiswa" />
 
       <section className="flex-1 p-8">
-        <header className="mb-6 flex items-center justify-between">
+        <header className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
             <p className="text-sm font-semibold text-blue-600 dark:text-blue-400">Selamat Datang Kembali 👋</p>
             <h1 className="text-3xl font-bold">Dashboard Saya</h1>
-            <p className="text-sm text-slate-500 dark:text-slate-400">
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-1 flex items-center gap-2">
+              <Clock size={14} /> {time} &nbsp;|&nbsp; <Cloud size={14} /> Cuaca: Cerah Berawan
+            </p>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
               Lihat kelas yang diikuti, status absensi, dan ringkasan kehadiran Anda.
             </p>
           </div>
@@ -127,9 +147,10 @@ export default function MahasiswaPage() {
           </div>
         </header>
 
-        <section className="mb-6 grid grid-cols-4 gap-5">
+        <section className="mb-6 grid grid-cols-5 gap-5">
           <StatCard title="Kelas Diikuti" value={`${kelasApproved.length}`} color="border-blue-200 dark:border-blue-900" />
           <StatCard title="Kehadiran" value={`${persenKehadiran}%`} color="border-green-200 dark:border-green-900" />
+          <StatCard title="Hadir" value={`${riwayat?.hadir ?? 0}`} color="border-emerald-200 dark:border-emerald-900" />
           <StatCard title="Terlambat" value={`${riwayat?.terlambat ?? 0}`} color="border-yellow-200 dark:border-yellow-900" />
           <StatCard title="Tidak Hadir" value={`${riwayat?.tidak_hadir ?? 0}`} color="border-red-200 dark:border-red-900" />
         </section>
@@ -156,13 +177,17 @@ export default function MahasiswaPage() {
               {loading && <p className="text-sm text-slate-400 dark:text-slate-500">Memuat data...</p>}
 
               {!loading && kelasSaya.length === 0 && (
-                <p className="text-sm text-slate-400 dark:text-slate-500">
-                  Anda belum bergabung ke kelas mana pun.{" "}
-                  <Link href="/mahasiswa/gabung-kelas" className="text-blue-600 dark:text-blue-400 font-semibold">
-                    Gabung kelas sekarang
+                <>
+                  <p className="text-sm text-slate-400 dark:text-slate-500 mb-4">
+                    Anda belum bergabung ke kelas mana pun.
+                  </p>
+                  <Link
+                    href="/mahasiswa/gabung-kelas"
+                    className="inline-block rounded-xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:bg-blue-700 transition"
+                  >
+                    Gabung Kelas Sekarang
                   </Link>
-                  .
-                </p>
+                </>
               )}
 
               {kelasSaya.map((k: KelasSaya, i: number) => (

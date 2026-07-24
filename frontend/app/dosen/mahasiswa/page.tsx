@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Search, Bell, Maximize, ChevronDown, Plus, Eye, Trash2, Copy, Check, GraduationCap, Users, Clock, Pencil
+  Search, Plus, Eye, Trash2, Copy, Check, GraduationCap, Users, Clock, Pencil
 } from "lucide-react";
 import SidebarNav from "@/components/SidebarNav";
 
@@ -261,19 +261,12 @@ useEffect(() => {
         <div className="bg-blue-700 dark:bg-blue-800 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
           <span className="text-white font-semibold text-base">Smart Attendance System</span>
           <div className="flex items-center gap-3">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/60" />
-              <input placeholder="Quick Search..." className="bg-white/20 text-white placeholder-white/60 text-sm rounded-full pl-8 pr-4 py-1.5 outline-none w-48" />
-            </div>
-            <Bell size={16} className="text-white cursor-pointer" />
-            <Maximize size={16} className="text-white cursor-pointer" />
-            <div className="flex items-center gap-2 cursor-pointer">
+            <div className="flex items-center gap-2 cursor-default">
               <div className="w-8 h-8 rounded-full bg-blue-400 flex items-center justify-center text-white font-semibold text-sm overflow-hidden">{fotoUrl ? <img src={fotoUrl} alt="Foto" className="w-full h-full object-cover" /> : userInitials}</div>
               <div className="text-left">
                 <p className="text-white text-xs font-medium">{authUser?.name ?? "Dosen"}</p>
                 <p className="text-white/70 text-[11px]">{authUser?.email ?? "-"}</p>
               </div>
-              <ChevronDown size={12} className="text-white" />
             </div>
           </div>
         </div>

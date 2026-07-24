@@ -211,30 +211,7 @@ export default function ProfileMahasiswaPage() {
                       nama ? nama.charAt(0).toUpperCase() : "M"
                     )}
                   </div>
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    accept="image/*"
-                    onChange={handleFotoChange}
-                    className="hidden"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={uploadingFoto}
-                    title="Ubah foto profil"
-                    className="absolute bottom-0 right-0 w-9 h-9 bg-blue-600 hover:bg-blue-700 rounded-full flex items-center justify-center text-white transition-colors disabled:opacity-50 ring-2 ring-white dark:ring-slate-900"
-                  >
-                    <Camera size={15} />
-                  </button>
                 </div>
-
-                {uploadingFoto && (
-                  <p className="text-xs text-slate-400 dark:text-slate-500 mb-2">Mengunggah foto...</p>
-                )}
-                {fotoError && (
-                  <p className="text-xs text-red-500 dark:text-red-400 mb-2">{fotoError}</p>
-                )}
 
                 <h2 className="text-xl font-bold">{nama || "-"}</h2>
                 <p className="text-sm text-slate-500 dark:text-slate-400">Mahasiswa</p>

@@ -8,6 +8,19 @@ import { API_URL } from "@/lib/api";
 
 const PASSWORD_RULES = /^(?=.{12,})(?=.*[^A-Za-z0-9]).+$/;
 
+const DOMAIN_DIIZINKAN = ["gmail.com", "polibatam.ac.id"];
+
+function validateEmail(email: string): string | null {
+  const trimmed = email.trim().toLowerCase();
+  const parts = trimmed.split("@");
+  if (parts.length !== 2 || !parts[0]) return "Format email tidak valid.";
+  const domain = parts[1];
+  if (!DOMAIN_DIIZINKAN.includes(domain)) {
+    return `Domain '${domain}' tidak diizinkan. Gunakan email dengan domain: ${DOMAIN_DIIZINKAN.join(" atau ")}.`;
+  }
+  return null;
+}
+
 const VIDEO_CONSTRAINTS: MediaTrackConstraints = {
   facingMode: "user",
   width: { ideal: 1280 },
@@ -90,6 +103,9 @@ export default function RegisterPage() {
   const [gestureError, setGestureError] = useState("");
 
   useEffect(() => {
+    // Clear any existing session when opening the registration page
+    localStorage.removeItem("auth_user");
+
     if (form.role !== "mahasiswa") {
       setSamples([]);
       setChallenge(null);
@@ -195,6 +211,13 @@ export default function RegisterPage() {
     setLoading(true);
     setError("");
     setSuccess("");
+
+    const emailErr = validateEmail(form.email);
+    if (emailErr) {
+      setError(emailErr);
+      setLoading(false);
+      return;
+    }
 
     if (!PASSWORD_RULES.test(form.password)) {
       setError("Password minimal 12 karakter dan mengandung 1 simbol unik.");

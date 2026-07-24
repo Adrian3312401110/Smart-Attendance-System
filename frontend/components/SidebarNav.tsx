@@ -16,6 +16,7 @@ import {
   Settings,
   Sun,
   Users,
+  HelpCircle,
 } from "lucide-react";
 
 interface SidebarNavProps {
@@ -58,13 +59,13 @@ export default function SidebarNav({ role }: SidebarNavProps) {
           { label: "Jadwal", href: "/dosen/jadwal", icon: Calendar },
           { label: "Statistik", href: "/dosen/statistik", icon: BarChart2 },
           { label: "Absensi", href: "/dosen/absensi", icon: ClipboardList },
+          { label: "Petunjuk", href: "/dosen/petunjuk", icon: HelpCircle },
         ]
       : [
           { label: "Dashboard", href: "/mahasiswa", icon: LayoutDashboard },
           { label: "Gabung Kelas", href: "/mahasiswa/gabung-kelas", icon: Users },
           { label: "Ambil Absensi", href: "/mahasiswa/ambil-absensi", icon: ClipboardList },
           { label: "Riwayat", href: "/mahasiswa/riwayat", icon: Calendar },
-          { label: "Pengaturan Pengguna", href: "/mahasiswa/profile", icon: Settings },
         ];
 
   function handleLogout() {
@@ -122,6 +123,19 @@ export default function SidebarNav({ role }: SidebarNavProps) {
       </nav>
 
       <div className="mt-4 space-y-1.5 pt-4 border-t border-white/5">
+        <Link
+          href={role === "dosen" ? "/dosen/settings" : "/mahasiswa/profile"}
+          title={collapsed ? "Pengaturan" : undefined}
+          className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors ${
+            pathname === (role === "dosen" ? "/dosen/settings" : "/mahasiswa/profile")
+              ? "bg-blue-600 text-white shadow-md shadow-blue-900/40"
+              : "text-slate-300 hover:bg-white/5 hover:text-white"
+          } ${collapsed ? "justify-center" : ""}`}
+        >
+          <Settings size={16} className="flex-shrink-0" />
+          {!collapsed && <span>Pengaturan Pengguna</span>}
+        </Link>
+
         <button
           type="button"
           onClick={() => setDarkMode((v) => !v)}
@@ -133,21 +147,6 @@ export default function SidebarNav({ role }: SidebarNavProps) {
           {darkMode ? <Sun size={16} className="flex-shrink-0" /> : <Moon size={16} className="flex-shrink-0" />}
           {!collapsed && <span>{darkMode ? "Mode Terang" : "Mode Gelap"}</span>}
         </button>
-
-        {role === "dosen" && (
-          <Link
-            href="/dosen/settings"
-            title={collapsed ? "Settings" : undefined}
-            className={`flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors ${
-              pathname === "/dosen/settings"
-                ? "bg-blue-600 text-white shadow-md shadow-blue-900/40"
-                : "text-slate-300 hover:bg-white/5 hover:text-white"
-            } ${collapsed ? "justify-center" : ""}`}
-          >
-            <Settings size={16} className="flex-shrink-0" />
-            {!collapsed && <span>Pengaturan Pengguna</span>}
-          </Link>
-        )}
 
         <button
           type="button"

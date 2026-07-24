@@ -188,10 +188,12 @@ export default function GabungKelasPage() {
                     className={`text-xs font-bold px-3 py-1 rounded-full ${
                       k.status === "approved"
                         ? "bg-green-100 dark:bg-green-950/50 text-green-600 dark:text-green-300"
+                        : k.status === "rejected"
+                        ? "bg-red-100 dark:bg-red-950/50 text-red-600 dark:text-red-300"
                         : "bg-yellow-100 dark:bg-yellow-950/50 text-yellow-600 dark:text-yellow-300"
                     }`}
                   >
-                    {k.status === "approved" ? "Bergabung" : "Menunggu Persetujuan"}
+                    {k.status === "approved" ? "Bergabung" : k.status === "rejected" ? "Ditolak" : "Menunggu Persetujuan"}
                   </span>
                 </div>
               ))}

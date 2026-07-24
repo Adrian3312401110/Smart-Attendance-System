@@ -17,6 +17,7 @@ interface JadwalItem {
   daftar_jam_absensi: string[];
   toleransi_telat_menit: number;
   mode_absensi: string;
+  selesaiHariIni?: boolean;
 }
 
 interface KelasItem {
@@ -260,9 +261,26 @@ export default function AmbilAbsensiPage() {
         const dataJadwal = await resJadwal.json();
         const semuaJadwal: JadwalItem[] = dataJadwal.data ?? [];
 
+        let absensiHariIni: any[] = [];
+        try {
+          const resRiwayat = await fetch(`http://localhost:8000/absensi/mahasiswa/${user?.id}`);
+          const dataRiwayat = await resRiwayat.json();
+          
+          const now = new Date();
+          const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+          const todayStr = `${String(now.getDate()).padStart(2, '0')} ${months[now.getMonth()]} ${now.getFullYear()}`;
+          
+          absensiHariIni = (dataRiwayat.data ?? []).filter((r: any) => r.tanggal === todayStr);
+        } catch {
+          // Abaikan
+        }
+
         const jadwalTerfilter = semuaJadwal.filter(
           (j) => j.id_kelas !== null && idKelasDiikuti.includes(j.id_kelas)
-        );
+        ).map((j) => {
+          const isSelesai = absensiHariIni.some((a) => a.mata_kuliah === j.id_mata_kuliah || a.id_mata_kuliah === j.id_mata_kuliah);
+          return { ...j, selesaiHariIni: isSelesai };
+        });
 
         setJadwalList(jadwalTerfilter);
       } catch {
@@ -542,10 +560,12 @@ export default function AmbilAbsensiPage() {
                 return (
                   <button
                     key={j.id}
-                    onClick={() => j.aktif && pilihJadwal(j)}
-                    disabled={!j.aktif}
+                    onClick={() => j.aktif && !j.selesaiHariIni && pilihJadwal(j)}
+                    disabled={!j.aktif || j.selesaiHariIni}
                     className={`w-full text-left rounded-xl border p-4 transition-colors ${
-                      j.aktif
+                      j.selesaiHariIni
+                        ? "border-emerald-200 bg-emerald-50 dark:bg-emerald-950/30 opacity-75 cursor-not-allowed"
+                        : j.aktif
                         ? swj.bisa
                           ? "border-green-400 bg-green-50 dark:bg-green-950/30 hover:border-green-500"
                           : "border-border hover:border-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30"
@@ -556,7 +576,7 @@ export default function AmbilAbsensiPage() {
                       <div>
                         <p className="font-bold">{j.id_mata_kuliah}</p>
                         <p className="text-xs text-slate-500 dark:text-slate-400">{j.hari} • {j.jam} • Dosen: {j.id_dosen}</p>
-                        {j.daftar_jam_absensi?.length > 0 && (
+                        {j.daftar_jam_absensi?.length > 0 && !j.selesaiHariIni && (
                           <p className="text-xs text-blue-500 mt-1">
                             {j.mode_absensi === "acak"
                               ? `🎲 ${j.daftar_jam_absensi.length} sesi absensi acak per pertemuan`
@@ -565,19 +585,22 @@ export default function AmbilAbsensiPage() {
                         )}
                       </div>
                       <div className="flex flex-col items-end gap-1">
-                        {!j.aktif && (
+                        {j.selesaiHariIni && (
+                          <span className="text-[10px] font-bold bg-emerald-100 text-emerald-600 px-2 py-1 rounded-full">✓ Sudah Absensi</span>
+                        )}
+                        {!j.aktif && !j.selesaiHariIni && (
                           <span className="text-[10px] font-bold bg-red-100 text-red-500 px-2 py-1 rounded-full">Nonaktif</span>
                         )}
-                        {j.aktif && !swj.hari_cocok && (
+                        {j.aktif && !swj.hari_cocok && !j.selesaiHariIni && (
                           <span className="text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-300 px-2 py-1 rounded-full">Bukan hari ini</span>
                         )}
-                        {j.aktif && swj.hari_cocok && swj.bisa && (
+                        {j.aktif && swj.hari_cocok && swj.bisa && !j.selesaiHariIni && (
                           <span className="text-[10px] font-bold bg-green-100 text-green-600 px-2 py-1 rounded-full animate-pulse">● Buka Sekarang</span>
                         )}
-                        {j.aktif && swj.hari_cocok && !swj.bisa && swj.terlalu_awal && swj.jam_berikutnya && (
+                        {j.aktif && swj.hari_cocok && !swj.bisa && swj.terlalu_awal && swj.jam_berikutnya && !j.selesaiHariIni && (
                           <span className="text-[10px] font-bold bg-amber-100 text-amber-600 px-2 py-1 rounded-full">{swj.menit_sampai} mnt lagi</span>
                         )}
-                        {j.aktif && swj.hari_cocok && swj.sudah_lewat && (
+                        {j.aktif && swj.hari_cocok && swj.sudah_lewat && !j.selesaiHariIni && (
                           <span className="text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-300 px-2 py-1 rounded-full">Sudah ditutup</span>
                         )}
                       </div>
@@ -752,6 +775,81 @@ export default function AmbilAbsensiPage() {
                 {tahapan === "idle" || tahapan === "selesai" ? "Mulai Absensi" : "Sedang Berjalan..."}
               </button>
             </div>
+
+            {/* Hasil sesi PARSIAL — sesi ini beres, tapi masih ada sesi lain hari ini */}
+            {result && result.hariSelesai === false && (
+              <div className="mt-6 rounded-2xl border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/30 p-6">
+                <span className="rounded-full px-3 py-1 text-xs font-bold bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300">
+                  Sesi Tercatat
+                </span>
+                <h2 className="mt-4 text-xl font-bold">{result.pesan}</h2>
+                <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+                  Tekan &quot;Mulai Absensi&quot; lagi saat sesi absensi berikutnya dibuka. Sistem akan memberi tahu otomatis.
+                </p>
+              </div>
+            )}
+
+            {/* Hasil FINAL — seluruh sesi hari ini sudah lengkap */}
+            {result && result.hariSelesai !== false && (
+              <div className={`mt-6 rounded-2xl border p-6 ${
+                result.berhasil
+                  ? result.status === "terlambat"
+                    ? "border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30"
+                    : result.status === "tidak_hadir"
+                      ? "border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/30"
+                      : "border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/30"
+                  : "border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30"
+              }`}>
+                <span className={`rounded-full px-3 py-1 text-xs font-bold ${
+                  result.berhasil
+                    ? result.status === "terlambat"
+                      ? "bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300"
+                      : result.status === "tidak_hadir"
+                        ? "bg-rose-100 dark:bg-rose-900/50 text-rose-700 dark:text-rose-300"
+                        : "bg-green-100 dark:bg-green-900/50 text-green-600 dark:text-green-300"
+                    : "bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-300"
+                }`}>
+                  {result.berhasil
+                    ? result.status === "terlambat"
+                      ? "Absensi Berhasil (Terlambat)"
+                      : result.status === "tidak_hadir"
+                        ? "Absensi Berhasil (Tidak Hadir / Alfa)"
+                        : "Absensi Berhasil"
+                    : "Absensi Gagal"}
+                </span>
+
+                <h2 className="mt-4 text-xl font-bold">
+                  {result.berhasil
+                    ? `Kehadiran ${result.nama} berhasil dicatat`
+                    : result.pesan}
+                </h2>
+
+                {result.berhasil && (
+                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
+                    Waktu: {result.waktu} • Akurasi wajah: {((result.confidence ?? 0) * 100).toFixed(1)}%
+                  </p>
+                )}
+
+                {result.berhasil && result.status === "terlambat" && result.telatTeks && (
+                  <p className="text-sm font-semibold text-amber-600 dark:text-amber-400 mt-2">
+                    {result.telatTeks}
+                  </p>
+                )}
+
+                {result.berhasil && result.status === "tidak_hadir" && (
+                  <p className="text-sm font-semibold text-rose-600 dark:text-rose-400 mt-2">
+                    {result.telatTeks || "Seluruh sesi absensi terlewat (Terhitung Tidak Hadir / Alfa)."}
+                  </p>
+                )}
+
+                {!result.berhasil && (
+                  <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+                    Silakan tekan Mulai Absensi kembali untuk mencoba dengan gesture baru.
+                  </p>
+                )}
+              </div>
+            )}
+
           </div>
 
           <aside className="space-y-6">
@@ -834,80 +932,6 @@ export default function AmbilAbsensiPage() {
             </div>
           </aside>
         </section>
-
-        {/* Hasil sesi PARSIAL — sesi ini beres, tapi masih ada sesi lain hari ini */}
-        {result && result.hariSelesai === false && (
-          <section className="rounded-2xl border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/30 p-6">
-            <span className="rounded-full px-3 py-1 text-xs font-bold bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300">
-              Sesi Tercatat
-            </span>
-            <h2 className="mt-4 text-xl font-bold">{result.pesan}</h2>
-            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
-              Tekan &quot;Mulai Absensi&quot; lagi saat sesi absensi berikutnya dibuka. Sistem akan memberi tahu otomatis.
-            </p>
-          </section>
-        )}
-
-        {/* Hasil FINAL — seluruh sesi hari ini sudah lengkap */}
-        {result && result.hariSelesai !== false && (
-          <section className={`rounded-2xl border p-6 ${
-            result.berhasil
-              ? result.status === "terlambat"
-                ? "border-amber-200 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/30"
-                : result.status === "tidak_hadir"
-                  ? "border-rose-200 dark:border-rose-900 bg-rose-50 dark:bg-rose-950/30"
-                  : "border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/30"
-              : "border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30"
-          }`}>
-            <span className={`rounded-full px-3 py-1 text-xs font-bold ${
-              result.berhasil
-                ? result.status === "terlambat"
-                  ? "bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300"
-                  : result.status === "tidak_hadir"
-                    ? "bg-rose-100 dark:bg-rose-900/50 text-rose-700 dark:text-rose-300"
-                    : "bg-green-100 dark:bg-green-900/50 text-green-600 dark:text-green-300"
-                : "bg-red-100 dark:bg-red-900/50 text-red-600 dark:text-red-300"
-            }`}>
-              {result.berhasil
-                ? result.status === "terlambat"
-                  ? "Absensi Berhasil (Terlambat)"
-                  : result.status === "tidak_hadir"
-                    ? "Absensi Berhasil (Tidak Hadir / Alfa)"
-                    : "Absensi Berhasil"
-                : "Absensi Gagal"}
-            </span>
-
-            <h2 className="mt-4 text-xl font-bold">
-              {result.berhasil
-                ? `Kehadiran ${result.nama} berhasil dicatat`
-                : result.pesan}
-            </h2>
-
-            {result.berhasil && (
-              <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                Waktu: {result.waktu} • Akurasi wajah: {((result.confidence ?? 0) * 100).toFixed(1)}%
-              </p>
-            )}
-
-            {result.berhasil && result.status === "terlambat" && result.telatTeks && (
-              <p className="text-sm font-semibold text-amber-600 dark:text-amber-400 mt-2">
-                {result.telatTeks}
-              </p>
-            )}
-
-            {result.berhasil && result.status === "tidak_hadir" && (
-              <p className="text-sm font-semibold text-rose-600 dark:text-rose-400 mt-2">
-                {result.telatTeks || "Seluruh sesi absensi terlewat (Terhitung Tidak Hadir / Alfa)."}
-              </p>
-            )}
-
-            {!result.berhasil && (
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
-                Silakan tekan Mulai Absensi kembali untuk mencoba dengan gesture baru.
-              </p>
-            )}
-          </section>
-        )}
       </section>
     </main>
   );

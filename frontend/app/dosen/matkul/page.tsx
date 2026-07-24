@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Search, Bell, Maximize, ChevronDown, Plus, Pencil, Trash2, BookOpen, X, Eye, Users, Clock, CalendarDays
+  Search, Plus, Pencil, Trash2, BookOpen, X, Eye, Users, Clock, CalendarDays
 } from "lucide-react";
 import SidebarNav from "@/components/SidebarNav";
 
@@ -55,7 +55,8 @@ export default function DosenMatkulPage() {
   const [formError, setFormError] = useState("");
 
   const [showEditModal, setShowEditModal] = useState(false);
-  const [editKode, setEditKode] = useState("");
+  const [editKodeLama, setEditKodeLama] = useState("");
+  const [editKodeBaru, setEditKodeBaru] = useState("");
   const [editNama, setEditNama] = useState("");
   const [editSks, setEditSks] = useState("");
   const [editSubmitting, setEditSubmitting] = useState(false);
@@ -96,7 +97,7 @@ export default function DosenMatkulPage() {
   async function loadMatkul() {
     setLoading(true);
     try {
-      const res = await fetch("http://localhost:8000/mata-kuliah");
+      const res = await fetch(`http://localhost:8000/mata-kuliah?id_dosen=${authUser?.id ?? ""}`);
       const data = await res.json();
       setMatkul(data.data ?? []);
     } catch {
@@ -124,6 +125,7 @@ export default function DosenMatkulPage() {
           id_mata_kuliah: formKode.trim(),
           nama: formNama.trim(),
           sks: formSks.trim(),
+          id_dosen: authUser?.id ?? "",
         }),
       });
       const data = await res.json();
@@ -145,7 +147,8 @@ export default function DosenMatkulPage() {
   }
 
   function bukaEdit(item: MataKuliahItem) {
-    setEditKode(item.id_mata_kuliah);
+    setEditKodeLama(item.id_mata_kuliah);
+    setEditKodeBaru(item.id_mata_kuliah);
     setEditNama(item.nama);
     setEditSks(item.sks !== null ? String(item.sks) : "");
     setEditError("");
@@ -163,10 +166,11 @@ export default function DosenMatkulPage() {
 
     setEditSubmitting(true);
     try {
-      const res = await fetch(`http://localhost:8000/mata-kuliah/${editKode}`, {
+      const res = await fetch(`http://localhost:8000/mata-kuliah/${editKodeLama}`, {
         method: "PUT",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
+          new_id_mata_kuliah: editKodeBaru.trim(),
           nama: editNama.trim(),
           sks: editSks.trim(),
         }),
@@ -230,13 +234,7 @@ export default function DosenMatkulPage() {
         <div className="bg-blue-700 dark:bg-blue-800 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
           <span className="text-white font-semibold text-base">Smart Attendance System</span>
           <div className="flex items-center gap-3">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/60" />
-              <input placeholder="Quick Search..." className="bg-white/20 text-white placeholder-white/60 text-sm rounded-full pl-8 pr-4 py-1.5 outline-none w-48" />
-            </div>
-            <Bell size={16} className="text-white cursor-pointer" />
-            <Maximize size={16} className="text-white cursor-pointer" />
-            <div className="flex items-center gap-2 cursor-pointer">
+            <div className="flex items-center gap-2 cursor-default">
               <div className="w-8 h-8 rounded-full bg-blue-400 flex items-center justify-center text-white font-semibold text-sm overflow-hidden">
                 {fotoUrl ? <img src={fotoUrl} alt="Foto" className="w-full h-full object-cover" /> : userInitials}
               </div>
@@ -244,7 +242,6 @@ export default function DosenMatkulPage() {
                 <p className="text-white text-xs font-medium">{authUser?.name ?? "Dosen"}</p>
                 <p className="text-white/70 text-[11px]">{authUser?.email ?? "-"}</p>
               </div>
-              <ChevronDown size={12} className="text-white" />
             </div>
           </div>
         </div>
@@ -307,14 +304,14 @@ export default function DosenMatkulPage() {
                     </span>
                   </div>
                   <div className="p-4">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <p className="font-bold text-slate-800 dark:text-slate-100">{item.nama}</p>
+                    <div className="flex justify-between items-start gap-4">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold text-slate-800 dark:text-slate-100 break-words whitespace-normal">{item.nama}</p>
                         <span className="inline-block mt-2 text-xs font-semibold bg-blue-100 dark:bg-blue-950/50 text-blue-600 dark:text-blue-300 px-2.5 py-1 rounded-full">
                           {item.sks ?? 0} SKS
                         </span>
                       </div>
-                      <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-2 flex-shrink-0">
                         <button
                           onClick={() => bukaLihatKelas(item)}
                           title="Lihat kelas yang memakai mata kuliah ini"
@@ -419,11 +416,10 @@ export default function DosenMatkulPage() {
               <div>
                 <label className="text-xs text-slate-400 dark:text-slate-500 block mb-1">Kode Mata Kuliah</label>
                 <input
-                  value={editKode}
-                  disabled
-                  className="w-full border border-slate-200 dark:border-slate-700 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-lg px-3 py-2.5 text-sm outline-none cursor-not-allowed"
+                  value={editKodeBaru}
+                  onChange={(e) => setEditKodeBaru(e.target.value)}
+                  className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 rounded-lg px-3 py-2.5 text-sm outline-none focus:ring-2 focus:ring-blue-500"
                 />
-                <p className="text-[11px] text-slate-400 mt-1">Kode tidak bisa diubah karena sudah dipakai di jadwal.</p>
               </div>
               <div>
                 <label className="text-xs text-slate-400 dark:text-slate-500 block mb-1">Nama Mata Kuliah</label>

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Search, Bell, Maximize, ChevronDown, Sun,
+  Sun,
   Clock, UserX, Eye, Moon, UserMinus, Trophy, Users
 } from "lucide-react";
 import SidebarNav from "@/components/SidebarNav";
@@ -68,6 +68,11 @@ export default function DosenStatistikPage() {
   const [topMahasiswa, setTopMahasiswa] = useState<TopMahasiswa[]>([]);
   const [trenHarian, setTrenHarian] = useState<TrenHarian[]>([]);
   const [kehadiranMatkul, setKehadiranMatkul] = useState<KehadiranMatkul[]>([]);
+  
+  const [filterTop, setFilterTop] = useState("semua");
+  const [filterTren, setFilterTren] = useState("14");
+  const [daftarKelas, setDaftarKelas] = useState<{id: number, nama: string}[]>([]);
+  const [daftarMatkul, setDaftarMatkul] = useState<{id_mata_kuliah: string, nama: string}[]>([]);
 
   useEffect(() => {
     const storedUser = localStorage.getItem("auth_user");
@@ -91,16 +96,26 @@ export default function DosenStatistikPage() {
   useEffect(() => {
     if (!authUser?.id) return;
 
+    let urlTop = `http://localhost:8000/dosen/${authUser.id}/top-mahasiswa`;
+    if (filterTop !== "semua") {
+      if (filterTop.startsWith("kelas-")) {
+        urlTop += `?id_kelas=${filterTop.split("-")[1]}`;
+      } else if (filterTop.startsWith("matkul-")) {
+        urlTop += `?id_mata_kuliah=${filterTop.split("-")[1]}`;
+      }
+    }
+
     Promise.all([
       fetch(`http://localhost:8000/kelas?id_dosen=${authUser.id}`).then((r) => r.json()),
       fetch("http://localhost:8000/jadwal/detail").then((r) => r.json()),
       fetch(`http://localhost:8000/dosen/${authUser.id}/ringkasan-absensi`).then((r) => r.json()),
-      fetch(`http://localhost:8000/dosen/${authUser.id}/top-mahasiswa`).then((r) => r.json()),
-      fetch(`http://localhost:8000/dosen/${authUser.id}/tren-kehadiran?hari=14`).then((r) => r.json()),
+      fetch(urlTop).then((r) => r.json()),
+      fetch(`http://localhost:8000/dosen/${authUser.id}/tren-kehadiran?hari=${filterTren}`).then((r) => r.json()),
       fetch(`http://localhost:8000/dosen/${authUser.id}/kehadiran-per-matkul`).then((r) => r.json()),
       fetch(`http://localhost:8000/dosen/${authUser.id}`).then((r) => r.json()),
+      fetch(`http://localhost:8000/mata-kuliah?id_dosen=${authUser.id}`).then((r) => r.json()),
     ])
-      .then(([kelasRes, jadwalRes, ringkasanRes, topRes, trenRes, matkulRes, dosenRes]) => {
+      .then(([kelasRes, jadwalRes, ringkasanRes, topRes, trenRes, matkulRes, dosenRes, mkRes]) => {
         const kelasData = kelasRes.data ?? [];
         const jadwalData = (jadwalRes.data ?? []).filter((item: { id_dosen: string }) => item.id_dosen === authUser.id);
         setKelasSummary({
@@ -113,9 +128,11 @@ export default function DosenStatistikPage() {
         setTrenHarian(trenRes.data ?? []);
         setKehadiranMatkul(matkulRes.data ?? []);
         setFotoUrl(dosenRes?.foto_url ?? null);
+        setDaftarKelas(kelasData);
+        setDaftarMatkul(mkRes.data ?? []);
       })
       .catch(() => {});
-  }, [authUser]);
+  }, [authUser, filterTop, filterTren]);
 
   useEffect(() => {
     const tick = () => {
@@ -132,7 +149,7 @@ export default function DosenStatistikPage() {
     return () => clearInterval(id);
   }, []);
 
-  const todayShort = new Date().toLocaleDateString("en-GB", {
+  const todayShort = new Date().toLocaleDateString("id-ID", {
     day: "numeric", month: "long", year: "numeric",
   });
 
@@ -168,13 +185,7 @@ export default function DosenStatistikPage() {
         <div className="bg-blue-700 dark:bg-blue-800 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
           <span className="text-white font-semibold text-base">Smart Attendance System</span>
           <div className="flex items-center gap-3">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/60" />
-              <input placeholder="Quick Search..." className="bg-white/20 text-white placeholder-white/60 text-sm rounded-full pl-8 pr-4 py-1.5 outline-none w-48" />
-            </div>
-            <Bell size={16} className="text-white cursor-pointer" />
-            <Maximize size={16} className="text-white cursor-pointer" />
-            <div className="flex items-center gap-2 cursor-pointer">
+            <div className="flex items-center gap-2 cursor-default">
               <div className="w-8 h-8 rounded-full bg-blue-400 flex items-center justify-center text-white font-semibold text-sm overflow-hidden">
                 {fotoUrl ? <img src={fotoUrl} alt="Foto" className="w-full h-full object-cover" /> : userInitials}
               </div>
@@ -182,13 +193,12 @@ export default function DosenStatistikPage() {
                 <p className="text-white text-xs font-medium">{authUser?.name ?? "Dosen"}</p>
                 <p className="text-white/70 text-[11px]">{authUser?.email ?? "-"}</p>
               </div>
-              <ChevronDown size={12} className="text-white" />
             </div>
           </div>
         </div>
 
         <div className="p-6">
-          <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Dashboard / <span className="text-blue-600 dark:text-blue-400 font-medium">Attendance Insights</span></p>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Dashboard / <span className="text-blue-600 dark:text-blue-400 font-medium">Statistik Kehadiran</span></p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
             <div className="bg-blue-700 dark:bg-blue-800 rounded-xl p-4 text-white">
@@ -196,7 +206,7 @@ export default function DosenStatistikPage() {
                 <Sun size={18} />
                 <span className="text-xl font-bold">{time}</span>
               </div>
-              <p className="text-xs text-blue-200">Today:</p>
+              <p className="text-xs text-blue-200">Hari ini:</p>
               <p className="text-sm font-medium">{todayShort}</p>
             </div>
             {stats1.map((s) => (
@@ -232,9 +242,28 @@ export default function DosenStatistikPage() {
           </div>
 
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm p-5 mb-6 border border-transparent dark:border-slate-800">
-            <div className="flex items-center gap-2 mb-5">
-              <Trophy size={18} className="text-yellow-500 dark:text-yellow-400" />
-              <h2 className="font-semibold text-slate-800 dark:text-slate-100">Top Performing Students</h2>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+              <div className="flex items-center gap-2">
+                <Trophy size={18} className="text-yellow-500 dark:text-yellow-400" />
+                <h2 className="font-semibold text-slate-800 dark:text-slate-100">Mahasiswa Terbaik</h2>
+              </div>
+              <select
+                value={filterTop}
+                onChange={(e) => setFilterTop(e.target.value)}
+                className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 text-sm outline-none text-slate-700 dark:text-slate-300 min-w-[200px]"
+              >
+                <option value="semua">Semua (Global)</option>
+                <optgroup label="Per Kelas">
+                  {daftarKelas.map(k => (
+                    <option key={`kelas-${k.id}`} value={`kelas-${k.id}`}>{k.nama}</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Per Mata Kuliah">
+                  {daftarMatkul.map(m => (
+                    <option key={`matkul-${m.id_mata_kuliah}`} value={`matkul-${m.id_mata_kuliah}`}>{m.nama}</option>
+                  ))}
+                </optgroup>
+              </select>
             </div>
 
             {topMahasiswa.length === 0 ? (
@@ -265,7 +294,17 @@ export default function DosenStatistikPage() {
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             <div className="lg:col-span-2 bg-white dark:bg-slate-900 rounded-xl shadow-sm p-5 border border-transparent dark:border-slate-800">
               <div className="flex justify-between items-center mb-5">
-                <h2 className="font-semibold text-slate-800 dark:text-slate-100">Tren Kehadiran (14 Hari Terakhir)</h2>
+                <h2 className="font-semibold text-slate-800 dark:text-slate-100">Tren Kehadiran</h2>
+                <select
+                  value={filterTren}
+                  onChange={(e) => setFilterTren(e.target.value)}
+                  className="bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-1.5 text-sm outline-none text-slate-700 dark:text-slate-300"
+                >
+                  <option value="7">7 Hari Terakhir</option>
+                  <option value="14">14 Hari Terakhir</option>
+                  <option value="21">21 Hari Terakhir</option>
+                  <option value="28">28 Hari Terakhir</option>
+                </select>
               </div>
 
               {trenHarian.length < 2 ? (

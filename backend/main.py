@@ -214,7 +214,7 @@ def _perbarui_kadaluarsa_dan_ambil_sesi_aktif(sesi_list: list, jadwal: models.Ja
             if now >= batas_dt:
                 sesi.status_sesi = "terlewat"
                 berubah = True
-            elif now >= target_dt and sesi_aktif is None:
+            elif now >= target_dt - timedelta(minutes=2) and sesi_aktif is None:
                 sesi_aktif = (sesi, target_dt, batas_dt)
 
     if berubah:
@@ -402,6 +402,37 @@ def verify_password(password: str, password_hash: str) -> bool:
     return hmac.compare_digest(derived.hex(), hash_hex)
 
 
+# Domain email yang diizinkan — typo sekecil apapun akan ditolak
+DOMAIN_EMAIL_DIIZINKAN = {"gmail.com", "polibatam.ac.id"}
+
+def validate_email_domain(email: str) -> str | None:
+    """
+    Validasi format dan domain email secara ketat.
+    Kembalikan pesan error (str) jika tidak valid, atau None jika valid.
+    """
+    email = email.strip().lower()
+
+    # Cek format dasar: harus ada tepat 1 '@' dan bagian setelahnya
+    if email.count("@") != 1:
+        return "Format email tidak valid (harus mengandung satu karakter '@')"
+
+    local_part, domain = email.split("@", 1)
+
+    if not local_part:
+        return "Bagian nama pada email tidak boleh kosong"
+
+    # Cek domain secara eksak
+    if domain not in DOMAIN_EMAIL_DIIZINKAN:
+        domain_list = ", ".join(sorted(DOMAIN_EMAIL_DIIZINKAN))
+        return (
+            f"Domain email '{domain}' tidak diizinkan. "
+            f"Hanya email dengan domain berikut yang diterima: {domain_list}"
+        )
+
+    return None
+
+
+
 # ===================== ROOT / HEALTH =====================
 
 @app.get("/")
@@ -439,6 +470,10 @@ def register_user(payload: RegisterRequest, db: Session = Depends(get_db)):
     email = payload.email.strip().lower()
     if not email or not payload.password or not payload.user_id or not payload.nama:
         return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Semua field wajib diisi"})
+
+    email_error = validate_email_domain(email)
+    if email_error:
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": email_error})
 
     existing = db.query(models.UserAccount).filter(models.UserAccount.email == email).first()
     if existing:
@@ -506,6 +541,10 @@ async def register_user_with_face(
     email = email.strip().lower()
     if not email or not password or not user_id or not nama:
         return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Semua field wajib diisi"})
+
+    email_error = validate_email_domain(email)
+    if email_error:
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": email_error})
 
     existing = db.query(models.UserAccount).filter(models.UserAccount.email == email).first()
     if existing:
@@ -587,6 +626,10 @@ def login_user(payload: LoginRequest, db: Session = Depends(get_db)):
     email = payload.email.strip().lower()
     if not email or not payload.password:
         return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Email dan password wajib diisi"})
+
+    email_error = validate_email_domain(email)
+    if email_error:
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": email_error})
 
     account = db.query(models.UserAccount).filter(models.UserAccount.email == email).first()
     if not account or not verify_password(payload.password, account.password_hash):
@@ -717,7 +760,32 @@ async def upload_foto_dosen(id_dosen: str, foto: UploadFile = File(...), db: Ses
     }
 
 
-# ===================== MATA KULIAH =====================
+@app.delete("/mahasiswa/{id_mahasiswa}")
+def delete_mahasiswa(id_mahasiswa: str, db: Session = Depends(get_db)):
+    mhs = db.query(models.Mahasiswa).filter(models.Mahasiswa.id_mahasiswa == id_mahasiswa).first()
+    if not mhs:
+        return JSONResponse(status_code=404, content={"berhasil": False, "pesan": "Mahasiswa tidak ditemukan"})
+
+    # Hapus dari tabel mahasiswa
+    db.delete(mhs)
+
+    # Hapus akun login (jika ada)
+    account = db.query(models.UserAccount).filter(
+        models.UserAccount.user_id == id_mahasiswa, 
+        models.UserAccount.role == "mahasiswa"
+    ).first()
+    if account:
+        db.delete(account)
+
+    db.commit()
+
+    return {
+        "berhasil": True,
+        "pesan": "Data mahasiswa berhasil dihapus"
+    }
+
+
+# ===================== DOSEN & MATA KULIAH =====================
 
 @app.post("/mata-kuliah")
 def tambah_mata_kuliah(
@@ -1152,6 +1220,31 @@ def update_mahasiswa(
             "email": mhs.email,
             "angkatan": mhs.angkatan,
         }
+    }
+
+
+@app.delete("/mahasiswa/{id_mahasiswa}")
+def delete_mahasiswa(id_mahasiswa: str, db: Session = Depends(get_db)):
+    mhs = db.query(models.Mahasiswa).filter(models.Mahasiswa.id_mahasiswa == id_mahasiswa).first()
+    if not mhs:
+        return JSONResponse(status_code=404, content={"berhasil": False, "pesan": "Mahasiswa tidak ditemukan"})
+
+    # Hapus dari tabel mahasiswa
+    db.delete(mhs)
+
+    # Hapus akun login (jika ada)
+    account = db.query(models.UserAccount).filter(
+        models.UserAccount.user_id == id_mahasiswa, 
+        models.UserAccount.role == "mahasiswa"
+    ).first()
+    if account:
+        db.delete(account)
+
+    db.commit()
+
+    return {
+        "berhasil": True,
+        "pesan": "Data mahasiswa berhasil dihapus"
     }
 
 

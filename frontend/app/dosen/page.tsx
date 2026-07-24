@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Search, Bell, Maximize, ChevronDown, Sun,
-  Clock, UserX, Eye, Hourglass, Moon, UserMinus, Users
+  Users, Clock, UserX, Eye, Hourglass, Moon, UserMinus, Sun, Cloud
 } from "lucide-react";
 import SidebarNav from "@/components/SidebarNav";
 
@@ -33,7 +32,6 @@ export default function DosenDashboardPage() {
   const [authUser, setAuthUser] = useState<{ id: string; name: string; email: string; role: string } | null>(null);
   const [fotoUrl, setFotoUrl] = useState<string | null>(null);
   const [time, setTime] = useState("");
-  const [showProfile, setShowProfile] = useState(false);
   const [ringkasan, setRingkasan] = useState<RingkasanAbsensi | null>(null);
   const [mahasiswaBaru, setMahasiswaBaru] = useState<MahasiswaItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -90,7 +88,7 @@ export default function DosenDashboardPage() {
       .finally(() => setLoading(false));
   }, [authUser]);
 
-  const today = new Date().toLocaleDateString("en-GB", {
+  const today = new Date().toLocaleDateString("id-ID", {
     day: "numeric", month: "long", year: "numeric",
   });
 
@@ -122,61 +120,21 @@ export default function DosenDashboardPage() {
         <div className="bg-blue-700 dark:bg-blue-800 px-6 py-3 flex items-center justify-between sticky top-0 z-40">
           <span className="text-white font-semibold text-base">Smart Attendance System</span>
           <div className="flex items-center gap-3">
-            <div className="relative">
-              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/60" />
-              <input
-                placeholder="Quick Search..."
-                className="bg-white/20 text-white placeholder-white/60 text-sm rounded-full pl-8 pr-4 py-1.5 outline-none w-48"
-              />
-            </div>
-            <Bell size={16} className="text-white cursor-pointer" />
-            <Maximize size={16} className="text-white cursor-pointer" />
-
-            <div className="relative">
-              <button
-                onClick={() => setShowProfile(!showProfile)}
-                className="flex items-center gap-2 cursor-pointer"
-              >
-                <div className="w-8 h-8 rounded-full bg-blue-400 flex items-center justify-center text-white font-semibold text-sm overflow-hidden">
-                  {fotoUrl ? <img src={fotoUrl} alt="Foto" className="w-full h-full object-cover" /> : userInitials}
-                </div>
-                <div className="text-left">
-                  <p className="text-white text-xs font-medium">{authUser?.name ?? "Dosen"}</p>
-                  <p className="text-white/70 text-[11px]">{authUser?.email ?? "-"}</p>
-                </div>
-                <ChevronDown size={12} className="text-white" />
-              </button>
-
-              {showProfile && (
-                <div className="absolute right-0 top-12 w-64 bg-white dark:bg-slate-900 rounded-xl shadow-xl p-5 z-50 border border-slate-100 dark:border-slate-700">
-                  <div className="w-14 h-14 rounded-full bg-blue-400 flex items-center justify-center text-white text-2xl font-bold mx-auto mb-2 overflow-hidden">
-                    {fotoUrl ? <img src={fotoUrl} alt="Foto" className="w-full h-full object-cover" /> : userInitials}
-                  </div>
-                  <p className="text-center font-semibold text-slate-800 dark:text-slate-100">{authUser?.name ?? "-"}</p>
-                  <p className="text-center text-xs text-slate-500 dark:text-slate-400 mb-4">Dosen</p>
-                  {[
-                    { label: "Full Name", value: authUser?.name ?? "-" },
-                    { label: "ID Dosen", value: authUser?.id ?? "-" },
-                    { label: "Email", value: authUser?.email ?? "-" },
-                  ].map((f) => (
-                    <div key={f.label} className="mb-3">
-                      <label className="text-[11px] text-slate-400 dark:text-slate-500 block mb-1">{f.label}</label>
-                      <input
-                        defaultValue={f.value}
-                        readOnly
-                        className="w-full border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-1.5 text-sm outline-none bg-slate-50 dark:bg-slate-950 text-slate-800 dark:text-slate-100"
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
+            <div className="flex items-center gap-2 cursor-default">
+              <div className="w-8 h-8 rounded-full bg-blue-400 flex items-center justify-center text-white font-semibold text-sm overflow-hidden">
+                {fotoUrl ? <img src={fotoUrl} alt="Foto" className="w-full h-full object-cover" /> : userInitials}
+              </div>
+              <div className="text-left">
+                <p className="text-white text-xs font-medium">{authUser?.name ?? "Dosen"}</p>
+                <p className="text-white/70 text-[11px]">{authUser?.email ?? "-"}</p>
+              </div>
             </div>
           </div>
         </div>
 
         <div className="p-6">
           <p className="text-xs text-slate-400 dark:text-slate-500 mb-1">Dashboard /</p>
-          <h1 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Lecture Dashboard</h1>
+          <h1 className="text-lg font-semibold text-slate-800 dark:text-slate-100">Dashboard Dosen</h1>
           <p className="text-xs text-slate-400 dark:text-slate-500 mb-5">Selamat datang kembali, {authUser?.name ?? "Dosen"}.</p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-4">
@@ -185,8 +143,11 @@ export default function DosenDashboardPage() {
                 <Sun size={18} />
                 <span className="text-xl font-bold">{time}</span>
               </div>
-              <p className="text-xs text-blue-200">Today:</p>
-              <p className="text-sm font-medium">{today}</p>
+              <p className="text-xs text-blue-200">Hari ini:</p>
+              <p className="text-sm font-medium">{new Date().toLocaleDateString("id-ID", { weekday: 'long' })}, {today}</p>
+              <p className="text-xs text-blue-200 mt-2 flex items-center gap-1">
+                <Cloud size={12} /> Cuaca: Cerah Berawan
+              </p>
             </div>
 
             {stats1.map((s) => (
