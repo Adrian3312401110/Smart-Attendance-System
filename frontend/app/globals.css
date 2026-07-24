@@ -50,7 +50,7 @@ select {
 }
 
 button {
-  /* Tombol dengan latar solid pekat → teks putih */
+/* Tombol dengan latar solid pekat → teks putih */
 button[class~="bg-blue-600"],
 button[class~="bg-blue-700"],
 button[class~="bg-green-600"],

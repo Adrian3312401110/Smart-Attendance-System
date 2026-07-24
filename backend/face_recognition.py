@@ -18,16 +18,26 @@ def load_arcface():
 
     print("Memuat model ArcFace...")
     _arcface_model = FaceAnalysis(
-    name="buffalo_sc",
-    providers=["CPUExecutionProvider"]
-)
+        name="buffalo_sc",
+        providers=["CPUExecutionProvider"]
+    )
     _arcface_model.prepare(ctx_id=0, det_size=(640, 640))
     print("Model ArcFace berhasil dimuat!")
 
     return _arcface_model
 
 
-def generate_embedding(image_bytes: bytes):
+def generate_embedding(image_bytes: bytes, bbox_terdeteksi: list | None = None):
+    """
+    Generate embedding wajah dari bytes gambar.
+
+    Parameter opsional `bbox_terdeteksi`:
+    - Kalau bbox wajah SUDAH diketahui sebelumnya (misal dari pemanggilan
+      deteksi_wajah() yang dilakukan endpoint pemanggil), kirim di sini supaya
+      fungsi ini TIDAK menjalankan YOLO lagi untuk gambar yang sama.
+    - Kalau None (default), perilaku sama seperti sebelumnya: YOLO dijalankan
+      di sini untuk mencari bbox wajah.
+    """
     model = load_arcface()
 
     np_array = np.frombuffer(image_bytes, np.uint8)
@@ -36,12 +46,15 @@ def generate_embedding(image_bytes: bytes):
     if gambar is None:
         return None, "Gagal membaca gambar"
 
-    wajah_list = deteksi_wajah(gambar, confidence_min=0.3)
+    if bbox_terdeteksi is not None:
+        bbox = bbox_terdeteksi
+    else:
+        wajah_list = deteksi_wajah(gambar, confidence_min=0.3)
+        if len(wajah_list) == 0:
+            return None, "YOLO tidak mendeteksi wajah"
+        bbox = wajah_list[0]["bbox"]
 
-    if len(wajah_list) == 0:
-        return None, "YOLO tidak mendeteksi wajah"
-
-    wajah_crop = crop_wajah(gambar, wajah_list[0]["bbox"], padding=20)
+    wajah_crop = crop_wajah(gambar, bbox, padding=20)
 
     if wajah_crop.size == 0:
         return None, "Gagal crop wajah"
@@ -66,8 +79,9 @@ def generate_embedding(image_bytes: bytes):
     return embedding, None
 
 
-def simpan_embedding(id_mahasiswa: str, id_foto: str, path_foto: str, image_bytes: bytes, db: Session):
-    embedding, error = generate_embedding(image_bytes)
+def simpan_embedding(id_mahasiswa: str, id_foto: str, path_foto: str, image_bytes: bytes, db: Session,
+                      bbox_terdeteksi: list | None = None):
+    embedding, error = generate_embedding(image_bytes, bbox_terdeteksi=bbox_terdeteksi)
 
     if embedding is None:
         return {
@@ -111,8 +125,13 @@ def simpan_embedding(id_mahasiswa: str, id_foto: str, path_foto: str, image_byte
     }
 
 
-def kenali_wajah(image_bytes: bytes, db: Session, expected_id: str | None = None, threshold: float = 0.5):
-    embedding_input, error = generate_embedding(image_bytes)
+def kenali_wajah(image_bytes: bytes, db: Session, expected_id: str | None = None, threshold: float = 0.5,
+                  bbox_terdeteksi: list | None = None):
+    """
+    `bbox_terdeteksi`: sama seperti di generate_embedding() -- kirim kalau bbox
+    wajah sudah diketahui dari deteksi sebelumnya, supaya YOLO tidak dipanggil ulang.
+    """
+    embedding_input, error = generate_embedding(image_bytes, bbox_terdeteksi=bbox_terdeteksi)
 
     if embedding_input is None:
         return {

@@ -1,0 +1,42 @@
+$kind: http-request
+name: "T01: Login dengan valid akun"
+url: http://127.0.0.1:5000/login
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \    \"username\": \"admin\",\r
+
+    \    \"password\": \"admin123\"\r
+
+    }"
+scripts:
+  - type: afterResponse
+    code: "// Simpan access_token menjadi var collection\r
+
+      var jsonData = pm.response.json();\r
+
+      pm.collectionVariables.set(\"access_token\", jsonData.access_token);\r
+
+      \r
+
+      // Assert kode status\r
+
+      pm.test(\"Kode status adalah 200\", function () {\r
+
+      \    pm.response.to.have.status(200);\r
+
+      });\r
+
+      \r
+
+      // Assert isi response mengandung access_token\r
+
+      pm.test(\"Login mendapatkan access_token\", function () {\r
+
+      \    pm.expect(jsonData).to.have.property('access_token');\r
+
+      });"
+    language: text/javascript
+order: 1778510978460

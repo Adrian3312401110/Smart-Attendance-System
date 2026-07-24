@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  Search, Bell, Maximize, ChevronDown, Plus, Eye, Trash2, Copy, Check, GraduationCap, Users, Clock
+  Search, Bell, Maximize, ChevronDown, Plus, Eye, Trash2, Copy, Check, GraduationCap, Users, Clock, Pencil
 } from "lucide-react";
 import SidebarNav from "@/components/SidebarNav";
 
@@ -50,6 +50,15 @@ export default function DosenMahasiswaPage() {
   const [formError, setFormError] = useState("");
   const [kodeBerhasil, setKodeBerhasil] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+
+  // ===== Edit Kelas =====
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editKelasId, setEditKelasId] = useState<number | null>(null);
+  const [editNama, setEditNama] = useState("");
+  const [editPelajaran, setEditPelajaran] = useState("");
+  const [editLokasi, setEditLokasi] = useState("");
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editError, setEditError] = useState("");
 
   const [selectedKelas, setSelectedKelas] = useState<KelasItem | null>(null);
   const [anggotaList, setAnggotaList] = useState<AnggotaItem[]>([]);
@@ -151,6 +160,63 @@ useEffect(() => {
     }
   }
 
+  function bukaEditKelas(kelas: KelasItem) {
+    setEditKelasId(kelas.id);
+    setEditNama(kelas.nama);
+    setEditPelajaran(kelas.pelajaran ?? "");
+    setEditLokasi(kelas.lokasi ?? "");
+    setEditError("");
+    setShowEditModal(true);
+  }
+
+  function tutupEditKelas() {
+    setShowEditModal(false);
+    setEditKelasId(null);
+    setEditError("");
+  }
+
+  async function submitEditKelas(e: React.FormEvent) {
+    e.preventDefault();
+    setEditError("");
+
+    if (!editNama.trim()) {
+      setEditError("Nama kelas wajib diisi");
+      return;
+    }
+    if (editKelasId === null) return;
+
+    setEditSubmitting(true);
+    try {
+      const res = await fetch(`http://localhost:8000/kelas/${editKelasId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          nama: editNama.trim(),
+          pelajaran: editPelajaran || null,
+          lokasi: editLokasi || null,
+        }),
+      });
+      const data = await res.json();
+
+      if (!res.ok || data.berhasil === false) {
+        setEditError(data.pesan ?? "Gagal memperbarui kelas");
+        return;
+      }
+
+      // Sinkronkan modal anggota kalau kelas yang sedang dibuka adalah yang baru diedit
+      if (selectedKelas && selectedKelas.id === editKelasId) {
+        setSelectedKelas({ ...selectedKelas, nama: data.data.nama, pelajaran: data.data.pelajaran, lokasi: data.data.lokasi });
+      }
+
+      tutupEditKelas();
+      muatKelas();
+    } catch {
+      setEditError("Tidak dapat terhubung ke server");
+    } finally {
+      setEditSubmitting(false);
+    }
+  }
+
   async function approveAnggota(idAnggota: number) {
     await fetch(`http://localhost:8000/kelas/anggota/${idAnggota}/approve`, { method: "PUT" });
     if (selectedKelas) muatAnggota(selectedKelas);
@@ -213,7 +279,7 @@ useEffect(() => {
         </div>
 
         <div className="p-6">
-          <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Class List /</p>
+          <p className="text-xs text-slate-400 dark:text-slate-500 mb-4">Daftar Kelas /</p>
 
           {/* Stats */}
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
@@ -239,10 +305,10 @@ useEffect(() => {
             </div>
           </div>
 
-          {/* Class List */}
+          {/* Daftar Kelas */}
           <div className="bg-white dark:bg-slate-900 rounded-xl shadow-sm p-5 border border-transparent dark:border-slate-800">
             <div className="flex justify-between items-center mb-5 flex-wrap gap-3">
-              <h2 className="font-semibold text-slate-800 dark:text-slate-100">Class List</h2>
+              <h2 className="font-semibold text-slate-800 dark:text-slate-100">Daftar Kelas</h2>
               <div className="flex items-center gap-3">
                 <div className="relative">
                   <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-slate-500" />
@@ -304,9 +370,16 @@ useEffect(() => {
                         <button
                           onClick={() => muatAnggota(kelas)}
                           title="Lihat & kelola anggota kelas"
-                          className="flex items-center gap-1 text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-xs font-semibold"
+                          className="text-green-600 dark:text-green-300 hover:text-green-700 dark:hover:text-green-400 text-xs font-semibold flex items-center gap-1"
                         >
                           <Eye size={15} /> Anggota
+                        </button>
+                        <button
+                          onClick={() => bukaEditKelas(kelas)}
+                          title="Edit kelas ini"
+                          className="flex items-center gap-1 text-blue-500 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-xs font-semibold"
+                        >
+                          <Pencil size={15} /> Edit
                         </button>
                         <button
                           onClick={() => hapusKelas(kelas.id)}
@@ -343,11 +416,11 @@ useEffect(() => {
                     />
                   </div>
                   <div className="border-b border-slate-200 dark:border-slate-700 pb-3">
-                    <label className="text-xs text-slate-400 dark:text-slate-500 block mb-1">Mata Pelajaran</label>
+                    <label className="text-xs text-slate-400 dark:text-slate-500 block mb-1">Prodi</label>
                     <input
                       value={formPelajaran}
                       onChange={(e) => setFormPelajaran(e.target.value)}
-                      placeholder="Informatics"
+                      placeholder="Informatika"
                       className="w-full outline-none text-sm text-slate-700 dark:text-slate-100 bg-transparent placeholder:text-slate-400 dark:placeholder:text-slate-600"
                     />
                   </div>
@@ -399,6 +472,63 @@ useEffect(() => {
                 </button>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Modal Edit Class */}
+      {showEditModal && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
+          <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl p-8 w-96 border border-transparent dark:border-slate-800">
+            <form onSubmit={submitEditKelas}>
+              <h2 className="text-center font-bold text-slate-800 dark:text-slate-100 text-lg mb-6">Edit Kelas</h2>
+              <div className="space-y-4">
+                <div className="border-b border-slate-200 dark:border-slate-700 pb-3">
+                  <label className="text-xs text-slate-400 dark:text-slate-500 block mb-1">Nama Kelas</label>
+                  <input
+                    value={editNama}
+                    onChange={(e) => setEditNama(e.target.value)}
+                    placeholder="IF 4A Pagi"
+                    className="w-full outline-none text-sm text-slate-700 dark:text-slate-100 bg-transparent placeholder:text-slate-400 dark:placeholder:text-slate-600"
+                  />
+                </div>
+                <div className="border-b border-slate-200 dark:border-slate-700 pb-3">
+                  <label className="text-xs text-slate-400 dark:text-slate-500 block mb-1">Prodi</label>
+                  <input
+                    value={editPelajaran}
+                    onChange={(e) => setEditPelajaran(e.target.value)}
+                    placeholder="Informatika"
+                    className="w-full outline-none text-sm text-slate-700 dark:text-slate-100 bg-transparent placeholder:text-slate-400 dark:placeholder:text-slate-600"
+                  />
+                </div>
+                <div className="border-b border-slate-200 dark:border-slate-700 pb-3">
+                  <label className="text-xs text-slate-400 dark:text-slate-500 block mb-1">Lokasi</label>
+                  <input
+                    value={editLokasi}
+                    onChange={(e) => setEditLokasi(e.target.value)}
+                    placeholder="TA lt 11.3"
+                    className="w-full outline-none text-sm text-slate-700 dark:text-slate-100 bg-transparent placeholder:text-slate-400 dark:placeholder:text-slate-600"
+                  />
+                </div>
+
+                {editError && (
+                  <div className="bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900 text-red-600 dark:text-red-300 text-xs rounded-lg px-3 py-2">
+                    {editError}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3 mt-6">
+                <button type="button" onClick={tutupEditKelas}
+                  className="flex-1 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 py-2 rounded-lg text-sm font-semibold hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors">
+                  Batal
+                </button>
+                <button type="submit" disabled={editSubmitting}
+                  className="flex-1 bg-[#1a1f36] dark:bg-blue-700 hover:bg-[#242b4a] dark:hover:bg-blue-600 text-white py-2 rounded-lg text-sm font-semibold disabled:opacity-50 transition-colors">
+                  {editSubmitting ? "Menyimpan..." : "Simpan Perubahan"}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

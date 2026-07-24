@@ -108,8 +108,8 @@ export default function LocationPicker({ lat, lon, radius, onChange }: LocationP
           center={[lat, lon]}
           zoom={17}
           style={{ height: 280, width: "100%", borderRadius: 12 }}
-          key={`${lat}-${lon}`}
           ref={setMapRef}
+          // key dihapus — MapContainer tidak boleh remount setiap klik
         >
           <TileLayer
             url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"

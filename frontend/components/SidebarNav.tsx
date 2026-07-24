@@ -54,8 +54,8 @@ export default function SidebarNav({ role }: SidebarNavProps) {
       ? [
           { label: "Dashboard", href: "/dosen", icon: LayoutDashboard },
           { label: "Mahasiswa", href: "/dosen/mahasiswa", icon: Users },
-          { label: "Jadwal", href: "/dosen/jadwal", icon: Calendar },
           { label: "Mata Kuliah", href: "/dosen/matkul", icon: BookOpen },
+          { label: "Jadwal", href: "/dosen/jadwal", icon: Calendar },
           { label: "Statistik", href: "/dosen/statistik", icon: BarChart2 },
           { label: "Absensi", href: "/dosen/absensi", icon: ClipboardList },
         ]

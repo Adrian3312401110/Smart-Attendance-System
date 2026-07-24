@@ -34,6 +34,7 @@ interface JadwalDetail {
   jumlah_gesture: number;
   mode_absensi: "tetap" | "acak";
   daftar_jam_absensi: string[];
+  jumlah_sesi_acak: number;
   aktif: boolean;
 }
 
@@ -264,7 +265,7 @@ useEffect(() => {
       jumlahGesture: row.jumlah_gesture,
       modeAbsensi: row.mode_absensi,
       daftarJam: row.daftar_jam_absensi ?? [],
-      jumlahSesiAcak: row.daftar_jam_absensi?.length || 1,
+      jumlahSesiAcak: row.jumlah_sesi_acak || row.daftar_jam_absensi?.length || 1,
       jamBaru: "",
     });
     setEditError("");
@@ -713,7 +714,10 @@ function FormJadwalModal({
                   min={1}
                   max={10}
                   value={form.jumlahSesiAcak}
-                  onChange={(e) => setForm({ ...form, jumlahSesiAcak: Number(e.target.value) })}
+                  onChange={(e) => {
+                  const v = parseInt(e.target.value, 10);
+                  setForm({ ...form, jumlahSesiAcak: Number.isNaN(v) ? 1 : Math.min(10, Math.max(1, v)) });
+                  }}
                   className="w-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-100 rounded-lg px-3 py-2 text-sm outline-none"
                 />
                 <p className="text-[11px] text-slate-400 dark:text-slate-500 mt-1">

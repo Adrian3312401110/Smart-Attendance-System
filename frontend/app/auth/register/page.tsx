@@ -326,7 +326,7 @@ export default function RegisterPage() {
             <div className={`grid gap-4 ${form.role === "mahasiswa" ? "md:grid-cols-2" : "md:grid-cols-1"}`}>
               <div>
                 <label className="mb-1 block text-sm font-medium text-slate-700">
-                  {form.role === "mahasiswa" ? "NIM" : "NIP / ID Dosen"}
+                  {form.role === "mahasiswa" ? "NIM" : "NIK"}
                 </label>
                 <input
                   required

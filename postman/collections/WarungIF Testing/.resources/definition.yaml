@@ -1,0 +1,6 @@
+$kind: collection
+name: WarungIF Testing
+variables:
+  access_token: ""
+  id_produk_baru: ""
+  id_produk_edge: ""

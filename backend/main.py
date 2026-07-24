@@ -31,7 +31,8 @@ from backend.gesture_detection import (
 from urllib.parse import urlparse
 from backend.database import DATABASE_URL
 
-TOLERANSI_MENIT = 15  # jendela "tepat waktu" (on time), tidak berubah
+
+TOLERANSI_MENIT = 15  # dipertahankan untuk kompatibilitas nama, TIDAK dipakai lagi sebagai jendela lebih awal
 
 HARI_INDEX = {
     0: "Senin",
@@ -75,19 +76,41 @@ def format_telat_detik(total_detik: int) -> dict:
 
 
 def generate_jam_acak(jam_mulai: str, jam_selesai: str, jumlah: int) -> list:
+    """
+    Generate `jumlah` waktu unik acak di antara jam_mulai dan jam_selesai.
+    Sudah divalidasi: rentang waktu tidak boleh <= 0, jumlah diclamp 1-10,
+    dan jumlah efektif diturunkan otomatis kalau rentang menit terlalu sempit.
+    """
     fmt = "%H:%M"
-    mulai = datetime.strptime(jam_mulai, fmt)
-    selesai = datetime.strptime(jam_selesai, fmt)
-    total_menit = int((selesai - mulai).total_seconds() / 60)
-    if total_menit <= 0 or jumlah <= 0:
+    try:
+        mulai = datetime.strptime(jam_mulai, fmt)
+        selesai = datetime.strptime(jam_selesai, fmt)
+    except (ValueError, TypeError):
         return []
+
+    # Kelas yang menyeberang tengah malam (jarang, tapi jaga-jaga)
+    if selesai <= mulai:
+        selesai += timedelta(days=1)
+
+    total_menit = int((selesai - mulai).total_seconds() / 60)
+    jumlah = max(1, min(int(jumlah or 1), 10))  # clamp 1-10
+
+    if total_menit <= 0:
+        return []
+
+    # Kalau rentang waktu terlalu sempit untuk jumlah yang diminta,
+    # turunkan otomatis supaya tetap bisa menghasilkan waktu unik
+    jumlah_efektif = min(jumlah, total_menit + 1)
+
     hasil = set()
     percobaan = 0
-    while len(hasil) < jumlah and percobaan < jumlah * 30:
+    batas_percobaan = max(jumlah_efektif * 50, 200)
+    while len(hasil) < jumlah_efektif and percobaan < batas_percobaan:
         offset = random.randint(0, total_menit)
         waktu = mulai + timedelta(minutes=offset)
         hasil.add(waktu.strftime(fmt))
         percobaan += 1
+
     return sorted(hasil)
 
 
@@ -119,6 +142,194 @@ def _jadwal_to_dict(j: models.Jadwal) -> dict:
     }
 
 
+def _pastikan_sesi_hari_ini(jadwal: models.Jadwal, id_mahasiswa: str, db: Session) -> list:
+    """
+    Pastikan ada row AbsensiSesi (status 'belum') untuk tiap jam_target hari ini.
+    Dipanggil di awal setiap percobaan absensi supaya progres per-slot bisa dilacak.
+    """
+    try:
+        daftar_jam = json.loads(jadwal.daftar_jam_absensi) if jadwal.daftar_jam_absensi else []
+    except (json.JSONDecodeError, TypeError):
+        daftar_jam = []
+
+    if not daftar_jam:
+        return []
+
+    hari_ini = datetime.now().date()
+    existing = db.query(models.AbsensiSesi).filter(
+        models.AbsensiSesi.id_mahasiswa == id_mahasiswa,
+        models.AbsensiSesi.id_jadwal == jadwal.id,
+        func.date(models.AbsensiSesi.tanggal) == hari_ini,
+    ).all()
+    existing_jam = {s.jam_target for s in existing}
+
+    ada_baru = False
+    for jam in daftar_jam:
+        if jam not in existing_jam:
+            db.add(models.AbsensiSesi(
+                id_mahasiswa=id_mahasiswa,
+                id_jadwal=jadwal.id,
+                tanggal=datetime.now(),
+                jam_target=jam,
+                status_sesi="belum",
+            ))
+            ada_baru = True
+    if ada_baru:
+        db.commit()
+
+    return db.query(models.AbsensiSesi).filter(
+        models.AbsensiSesi.id_mahasiswa == id_mahasiswa,
+        models.AbsensiSesi.id_jadwal == jadwal.id,
+        func.date(models.AbsensiSesi.tanggal) == hari_ini,
+    ).order_by(models.AbsensiSesi.jam_target).all()
+
+
+def _perbarui_kadaluarsa_dan_ambil_sesi_aktif(sesi_list: list, jadwal: models.Jadwal, now: datetime, db: Session):
+    """
+    Tandai 'terlewat' untuk sesi yang jendelanya sudah tertutup tanpa diselesaikan,
+    lalu kembalikan (sesi_aktif, target_dt, batas_dt) untuk sesi yang SEDANG bisa dikerjakan.
+
+    Jendela sesi ke-i: [target_dt[i], target_dt[i+1] atau jam_selesai kelas).
+    TIDAK ADA jendela lebih awal — sesi baru "aktif" begitu now >= target_dt.
+    """
+    berubah = False
+    sesi_aktif = None
+
+    for i, sesi in enumerate(sesi_list):
+        h, m = map(int, sesi.jam_target.split(":"))
+        target_dt = now.replace(hour=h, minute=m, second=0, microsecond=0)
+
+        if i + 1 < len(sesi_list):
+            hh, mm = map(int, sesi_list[i + 1].jam_target.split(":"))
+            batas_dt = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        elif jadwal.jam_selesai:
+            hh, mm = map(int, jadwal.jam_selesai.split(":"))
+            batas_dt = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+            if batas_dt <= target_dt:
+                batas_dt += timedelta(hours=2)
+        else:
+            batas_dt = target_dt + timedelta(hours=2)
+
+        if sesi.status_sesi == "belum":
+            if now >= batas_dt:
+                sesi.status_sesi = "terlewat"
+                berubah = True
+            elif now >= target_dt and sesi_aktif is None:
+                sesi_aktif = (sesi, target_dt, batas_dt)
+
+    if berubah:
+        db.commit()
+
+    return sesi_aktif
+
+
+def _tentukan_status_final(sesi_list: list) -> tuple[str, int, str]:
+    sesi_terlewat = [i for i, s in enumerate(sesi_list, start=1) if s.status_sesi == "terlewat"]
+    sesi_telat = [i for i, s in enumerate(sesi_list, start=1) if s.status_sesi == "telat"]
+
+    if len(sesi_terlewat) == len(sesi_list):
+        status_final = "tidak_hadir"
+    elif sesi_terlewat or sesi_telat:
+        status_final = "terlambat"
+    else:
+        status_final = "hadir"
+
+    total_telat_detik = sum(s.telat_detik or 0 for s in sesi_list)
+
+    catatan_bagian = []
+    if sesi_terlewat:
+        catatan_bagian.append(f"tidak melakukan absensi pada sesi {', '.join(f'ke-{n}' for n in sesi_terlewat)}")
+    if sesi_telat:
+        catatan_bagian.append(f"terlambat pada sesi {', '.join(f'ke-{n}' for n in sesi_telat)}")
+    catatan_final = "; ".join(catatan_bagian) if catatan_bagian else "Semua sesi diselesaikan tepat waktu"
+
+    return status_final, total_telat_detik, catatan_final
+
+
+def _simpan_absensi_final(
+    id_mahasiswa: str, id_jadwal: int, jadwal: models.Jadwal, sesi_list: list, now: datetime, db: Session,
+    confidence: float | None = None, latitude: float | None = None, longitude: float | None = None,
+):
+    status_final, total_telat_detik, catatan_final = _tentukan_status_final(sesi_list)
+
+    absensi_existing = db.query(models.Absensi).filter(
+        models.Absensi.id_mahasiswa == id_mahasiswa,
+        models.Absensi.id_jadwal == id_jadwal,
+        func.date(models.Absensi.tanggal_absensi) == now.date(),
+    ).first()
+
+    if absensi_existing:
+        absensi_baru = absensi_existing
+        absensi_baru.status = status_final
+        absensi_baru.telat_detik = total_telat_detik
+        if confidence is not None:
+            absensi_baru.confidence = confidence
+        if latitude is not None:
+            absensi_baru.latitude = latitude
+        if longitude is not None:
+            absensi_baru.longitude = longitude
+    else:
+        absensi_baru = models.Absensi(
+            id_mahasiswa=id_mahasiswa,
+            id_jadwal=id_jadwal,
+            id_mata_kuliah=jadwal.id_mata_kuliah,
+            jam_target=sesi_list[0].jam_target,
+            latitude=latitude,
+            longitude=longitude,
+            lokasi_valid=(confidence is not None),
+            confidence=confidence,
+            status=status_final,
+            telat_detik=total_telat_detik,
+        )
+        db.add(absensi_baru)
+
+    db.commit()
+    db.refresh(absensi_baru)
+    return absensi_baru, status_final, catatan_final
+
+
+def _pastikan_finalisasi_hari_ini(jadwal: models.Jadwal, id_mahasiswa: str, now: datetime, db: Session):
+    """
+    Idempotent. Pastikan sesi hari ini ada, tandai yang kadaluarsa 'terlewat',
+    dan kalau SEMUA sesi sudah resolved (hadir/telat/terlewat), langsung
+    tulis/perbarui baris final di tabel Absensi -- termasuk kasus tidak_hadir
+    walau mahasiswa TIDAK PERNAH mencoba absen sama sekali.
+    """
+    sesi_list = _pastikan_sesi_hari_ini(jadwal, id_mahasiswa, db)
+    if not sesi_list:
+        return None
+
+    hasil_aktif = _perbarui_kadaluarsa_dan_ambil_sesi_aktif(sesi_list, jadwal, now, db)
+
+    if hasil_aktif is None and all(s.status_sesi != "belum" for s in sesi_list):
+        _simpan_absensi_final(id_mahasiswa, jadwal.id, jadwal, sesi_list, now, db)
+
+    return hasil_aktif
+
+
+def _auto_finalisasi_kelas(jadwal: models.Jadwal, db: Session, now: datetime | None = None):
+    """
+    Jalankan finalisasi untuk SEMUA mahasiswa approved di kelas jadwal ini.
+    Dipanggil dari endpoint dashboard/riwayat supaya mahasiswa yang tidak
+    pernah membuka halaman absen tetap otomatis tercatat Alfa begitu
+    jendela sesi lewat -- pengganti cron job.
+    """
+    now = now or datetime.now()
+    if jadwal.hari != HARI_INDEX[now.weekday()] or not jadwal.id_kelas:
+        return
+
+    anggota = db.query(models.KelasMahasiswa).filter(
+        models.KelasMahasiswa.id_kelas == jadwal.id_kelas,
+        models.KelasMahasiswa.status == "approved",
+    ).all()
+
+    for a in anggota:
+        try:
+            _pastikan_finalisasi_hari_ini(jadwal, a.id_mahasiswa, now, db)
+        except Exception:
+            db.rollback()
+
+
 Base.metadata.create_all(bind=engine)
 
 load_model()
@@ -128,16 +339,16 @@ load_gesture_model()
 app = FastAPI(
     title="Smart Attendance System",
     description="Sistem absensi otomatis berbasis computer vision",
-    version="3.1.0"
+    version="3.2.0"
 )
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "https://smart-attendance-system-roan-two.vercel.app"
-],
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "https://smart-attendance-system-roan-two.vercel.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -149,8 +360,8 @@ app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 EKSTENSI_FOTO_DIIZINKAN = {".jpg", ".jpeg", ".png", ".webp"}
 
-
 BASE_URL = "https://Adrian3312401110-smart-attendance-backend.hf.space"
+
 
 def _url_foto(path_relatif: str | None) -> str | None:
     if not path_relatif:
@@ -191,15 +402,18 @@ def verify_password(password: str, password_hash: str) -> bool:
     return hmac.compare_digest(derived.hex(), hash_hex)
 
 
+# ===================== ROOT / HEALTH =====================
+
 @app.get("/")
 def homepage():
     return {
         "aplikasi": "Smart Attendance System",
-        "versi": "3.1",
+        "versi": "3.2",
         "status": "berjalan",
         "database": "PostgreSQL",
         "ai_model": "YOLO11n-face (loaded)"
     }
+
 
 @app.get("/debug/db-info")
 def debug_db_info():
@@ -217,6 +431,8 @@ def debug_db_info():
 def health_check():
     return {"status": "ok"}
 
+
+# ===================== AUTH =====================
 
 @app.post("/auth/register")
 def register_user(payload: RegisterRequest, db: Session = Depends(get_db)):
@@ -648,6 +864,8 @@ def tambah_jadwal(
     if not mk:
         return JSONResponse(status_code=404, content={"berhasil": False, "pesan": f"Mata kuliah {id_mata_kuliah} tidak ditemukan"})
 
+    jumlah_sesi_acak = max(1, min(int(jumlah_sesi_acak or 1), 10))
+
     if mode_absensi == "acak":
         jam_list = generate_jam_acak(jam_mulai, jam_selesai, jumlah_sesi_acak)
     else:
@@ -714,6 +932,8 @@ def update_jadwal(
     mk = db.query(models.MataKuliah).filter(models.MataKuliah.id_mata_kuliah == id_mata_kuliah).first()
     if not mk:
         return JSONResponse(status_code=404, content={"berhasil": False, "pesan": f"Mata kuliah {id_mata_kuliah} tidak ditemukan"})
+
+    jumlah_sesi_acak = max(1, min(int(jumlah_sesi_acak or 1), 10))
 
     if mode_absensi == "acak":
         jam_list = generate_jam_acak(jam_mulai, jam_selesai, jumlah_sesi_acak)
@@ -789,6 +1009,8 @@ def lihat_jadwal(db: Session = Depends(get_db)):
 @app.get("/jadwal/detail")
 def lihat_jadwal_detail(db: Session = Depends(get_db)):
     semua = db.query(models.Jadwal).all()
+    for j in semua:
+        _auto_finalisasi_kelas(j, db)
     hasil = []
     for j in semua:
         dosen = db.query(models.Dosen).filter(models.Dosen.id_dosen == j.id_dosen).first()
@@ -808,6 +1030,9 @@ def hapus_jadwal(id_jadwal: int, db: Session = Depends(get_db)):
     if not jadwal:
         return JSONResponse(status_code=404, content={"berhasil": False, "pesan": "Jadwal tidak ditemukan"})
 
+    # AbsensiSesi juga punya foreign key ke jadwal.id -> harus dibersihkan
+    # dulu sebelum jadwal dihapus, kalau tidak DELETE akan gagal (FK constraint).
+    db.query(models.AbsensiSesi).filter(models.AbsensiSesi.id_jadwal == id_jadwal).delete()
     db.query(models.Absensi).filter(models.Absensi.id_jadwal == id_jadwal).delete()
     db.delete(jadwal)
     db.commit()
@@ -934,7 +1159,10 @@ def update_mahasiswa(
 
 @app.get("/dosen/{id_dosen}/ringkasan-absensi")
 def ringkasan_absensi_dosen(id_dosen: str, db: Session = Depends(get_db)):
-    jadwal_ids = [j.id for j in db.query(models.Jadwal.id).filter(models.Jadwal.id_dosen == id_dosen).all()]
+    jadwal_list_obj = db.query(models.Jadwal).filter(models.Jadwal.id_dosen == id_dosen).all()
+    for j in jadwal_list_obj:
+        _auto_finalisasi_kelas(j, db)
+    jadwal_ids = [j.id for j in jadwal_list_obj]
 
     total_mahasiswa = db.query(models.KelasMahasiswa).join(
         models.Kelas, models.Kelas.id == models.KelasMahasiswa.id_kelas
@@ -1161,6 +1389,21 @@ def lihat_absensi(id_mata_kuliah: str, db: Session = Depends(get_db)):
 
 @app.get("/absensi/mahasiswa/{id_mahasiswa}")
 def lihat_riwayat_mahasiswa(id_mahasiswa: str, db: Session = Depends(get_db)):
+    now = datetime.now()
+    kelas_diikuti = [
+        a.id_kelas for a in db.query(models.KelasMahasiswa).filter(
+            models.KelasMahasiswa.id_mahasiswa == id_mahasiswa,
+            models.KelasMahasiswa.status == "approved",
+        ).all()
+    ]
+    if kelas_diikuti:
+        jadwal_hari_ini = db.query(models.Jadwal).filter(
+            models.Jadwal.id_kelas.in_(kelas_diikuti),
+            models.Jadwal.hari == hari_ini_label(),
+        ).all()
+        for j in jadwal_hari_ini:
+            _pastikan_finalisasi_hari_ini(j, id_mahasiswa, now, db)
+
     akun = db.query(models.UserAccount).filter(
         models.UserAccount.user_id == id_mahasiswa,
         models.UserAccount.role == "mahasiswa"
@@ -1207,7 +1450,7 @@ def lihat_absensi_per_jadwal(id_jadwal: int, db: Session = Depends(get_db)):
     jadwal = db.query(models.Jadwal).filter(models.Jadwal.id == id_jadwal).first()
     if not jadwal:
         return JSONResponse(status_code=404, content={"berhasil": False, "pesan": f"Jadwal ID {id_jadwal} tidak ditemukan"})
-
+    _auto_finalisasi_kelas(jadwal, db)
     daftar_absensi = db.query(models.Absensi).filter(models.Absensi.id_jadwal == id_jadwal).all()
 
     hasil = []
@@ -1239,6 +1482,9 @@ def lihat_absensi_per_jadwal(id_jadwal: int, db: Session = Depends(get_db)):
 def status_absensi_mahasiswa(id_jadwal: int, db: Session = Depends(get_db)):
     semua_mahasiswa = db.query(models.Mahasiswa).all()
     daftar_absensi = db.query(models.Absensi).filter(models.Absensi.id_jadwal == id_jadwal).all()
+    jadwal = db.query(models.Jadwal).filter(models.Jadwal.id == id_jadwal).first()
+    if jadwal:
+        _auto_finalisasi_kelas(jadwal, db)
 
     id_sudah_absen = {a.id_mahasiswa: a for a in daftar_absensi}
 
@@ -1316,6 +1562,12 @@ class KelasCreateRequest(BaseModel):
     id_dosen: str
 
 
+class KelasUpdateRequest(BaseModel):
+    nama: str
+    pelajaran: str = None
+    lokasi: str = None
+
+
 class GabungKelasRequest(BaseModel):
     kode_gabung: str
     id_mahasiswa: str
@@ -1346,6 +1598,34 @@ def buat_kelas(data: KelasCreateRequest, db: Session = Depends(get_db)):
             "pelajaran": baru.pelajaran,
             "lokasi": baru.lokasi,
             "kode_gabung": baru.kode_gabung,
+        }
+    }
+
+
+@app.put("/kelas/{id_kelas}")
+def update_kelas(id_kelas: int, data: KelasUpdateRequest, db: Session = Depends(get_db)):
+    kelas = db.query(models.Kelas).filter(models.Kelas.id == id_kelas).first()
+    if not kelas:
+        return JSONResponse(status_code=404, content={"berhasil": False, "pesan": "Kelas tidak ditemukan"})
+
+    if not data.nama or not data.nama.strip():
+        return JSONResponse(status_code=400, content={"berhasil": False, "pesan": "Nama kelas wajib diisi"})
+
+    kelas.nama = data.nama.strip()
+    kelas.pelajaran = data.pelajaran
+    kelas.lokasi = data.lokasi
+    db.commit()
+    db.refresh(kelas)
+
+    return {
+        "berhasil": True,
+        "pesan": "Kelas berhasil diperbarui",
+        "data": {
+            "id": kelas.id,
+            "nama": kelas.nama,
+            "pelajaran": kelas.pelajaran,
+            "lokasi": kelas.lokasi,
+            "kode_gabung": kelas.kode_gabung,
         }
     }
 
@@ -1655,79 +1935,38 @@ async def absensi_foto(
             "pesan": f"Jadwal ini hanya berlaku pada hari {jadwal.hari}, bukan hari ini ({hari_sekarang})"
         })
 
-    try:
-        daftar_jam = json.loads(jadwal.daftar_jam_absensi) if jadwal.daftar_jam_absensi else []
-    except (json.JSONDecodeError, TypeError):
-        daftar_jam = []
-
-    jam_target_cocok = None
-    status_kehadiran = "hadir"
-    telat_detik = 0
-    toleransi_telat_menit = jadwal.toleransi_telat_menit if jadwal.toleransi_telat_menit is not None else 30
-
-    if not daftar_jam:
+    sesi_list = _pastikan_sesi_hari_ini(jadwal, id_mahasiswa, db)
+    if not sesi_list:
         return JSONResponse(status_code=400, content={
             "berhasil": False,
             "pesan": "Jadwal ini belum memiliki jam absensi yang ditentukan dosen"
         })
 
-    absensi_hari_ini = db.query(models.Absensi).filter(
-        models.Absensi.id_mahasiswa == id_mahasiswa,
-        models.Absensi.id_jadwal == id_jadwal,
-        func.date(models.Absensi.tanggal_absensi) == now.date()
-    ).all()
-    jam_target_sudah = {a.jam_target for a in absensi_hari_ini}
+    hasil_aktif = _perbarui_kadaluarsa_dan_ambil_sesi_aktif(sesi_list, jadwal, now, db)
 
-    if len(jam_target_sudah) >= len(daftar_jam):
-        return JSONResponse(status_code=400, content={
-            "berhasil": False,
-            "pesan": "Anda sudah melakukan seluruh absensi untuk jadwal hari ini"
-        })
-
-    kandidat_terbaik = None
-    for jam_str in daftar_jam:
-        if jam_str in jam_target_sudah:
-            continue
-
-        try:
-            target_dt = datetime.strptime(jam_str, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
-        except ValueError:
-            continue
-
-        selisih_detik = (now - target_dt).total_seconds()
-
-        if selisih_detik >= -TOLERANSI_MENIT * 60:
-            if kandidat_terbaik is None or abs(selisih_detik) < abs(kandidat_terbaik[1]):
-                kandidat_terbaik = (jam_str, selisih_detik, target_dt)
-
-    if not kandidat_terbaik:
-        return JSONResponse(status_code=400, content={
-            "berhasil": False,
-            "pesan": (
-                f"Belum waktunya absensi. "
-                f"Jadwal absensi hari ini: {', '.join(daftar_jam)} "
-                f"(bisa absen mulai {TOLERANSI_MENIT} menit sebelum jam target)"
+    if hasil_aktif is None:
+        if all(s.status_sesi != "belum" for s in sesi_list):
+            absensi_final, status_final, catatan_final = _simpan_absensi_final(
+                id_mahasiswa, id_jadwal, jadwal, sesi_list, now, db
             )
+            if status_final == "tidak_hadir":
+                pesan = "Waktu absensi jadwal ini sudah berakhir. Karena tidak ada sesi yang diselesaikan, hari ini tercatat otomatis Tidak Hadir / Alfa."
+            else:
+                pesan = f"Seluruh sesi absensi jadwal ini sudah berakhir dan tercatat {status_final.upper()}. {catatan_final}."
+            return JSONResponse(status_code=400, content={
+                "berhasil": False,
+                "sudah_final": True,
+                "status_final": status_final,
+                "pesan": pesan,
+            })
+        return JSONResponse(status_code=400, content={
+            "berhasil": False,
+            "pesan": "Belum waktunya sesi absensi. Sistem akan memberi tahu otomatis saat waktunya tiba."
         })
 
-    jam_target_cocok, selisih_detik, target_dt = kandidat_terbaik
-
-    try:
-        jam_selesai_dt = datetime.strptime(jadwal.jam_selesai, "%H:%M").replace(year=now.year, month=now.month, day=now.day)
-        if jam_selesai_dt < target_dt:
-            jam_selesai_dt += timedelta(days=1)
-    except (ValueError, TypeError):
-        jam_selesai_dt = target_dt + timedelta(hours=2)
-
-    if selisih_detik <= toleransi_telat_menit * 60:
-        status_kehadiran = "hadir"
-        telat_detik = 0
-    elif now <= jam_selesai_dt:
-        status_kehadiran = "terlambat"
-        telat_detik = int(selisih_detik - (toleransi_telat_menit * 60))
-    else:
-        status_kehadiran = "tidak_hadir"
-        telat_detik = 0
+    sesi_sekarang, target_dt, batas_dt = hasil_aktif
+    toleransi_telat_menit = jadwal.toleransi_telat_menit if jadwal.toleransi_telat_menit is not None else 30
+    selisih_detik = (now - target_dt).total_seconds()
 
     if jadwal.gps_aktif:
         target_lat = jadwal.latitude if jadwal.latitude is not None else KAMPUS_LAT
@@ -1744,11 +1983,6 @@ async def absensi_foto(
             radius_meter=target_radius,
             altitude=altitude,
         )
-
-        print(f"=== GPS DEBUG [{id_mahasiswa}] ===")
-        print(f"Lolos : {hasil_gps['lolos']}")
-        print(f"Pesan : {hasil_gps['pesan']}")
-        print("===================================")
 
         if not hasil_gps["lolos"]:
             return JSONResponse(status_code=400, content={
@@ -1777,12 +2011,6 @@ async def absensi_foto(
         })
 
     hasil_gesture = proses_gesture_challenge(frames_decoded, gesture_diminta)
-
-    print(f"=== GESTURE DEBUG [{gesture_diminta}] ===")
-    print(f"Lolos : {hasil_gesture['lolos']}")
-    print(f"Alasan: {hasil_gesture['alasan']}")
-    print(f"Detail: {hasil_gesture['detail']}")
-    print("==========================================")
 
     if not hasil_gesture["lolos"]:
         return JSONResponse(status_code=400, content={
@@ -1820,43 +2048,64 @@ async def absensi_foto(
 
     del gesture_challenge_store[gesture_token]
 
-    absensi_baru = models.Absensi(
-        id_mahasiswa=id_mahasiswa,
-        id_jadwal=id_jadwal,
-        id_mata_kuliah=jadwal.id_mata_kuliah,
-        jam_target=jam_target_cocok,
-        latitude=latitude,
-        longitude=longitude,
-        lokasi_valid=lokasi_valid_hasil,
-        confidence=hasil_kenali["confidence"],
-        status=status_kehadiran,
-        telat_detik=telat_detik,
-    )
-    db.add(absensi_baru)
-    db.commit()
-    db.refresh(absensi_baru)
-
-    telat_info = format_telat_detik(telat_detik)
-
-    if status_kehadiran == "hadir":
-        pesan_sukses = "Absensi berhasil dicatat"
-    elif status_kehadiran == "terlambat":
-        pesan_sukses = f"Absensi berhasil dicatat ({telat_info['teks']})"
+    # ===== Catat hasil sesi (slot waktu) ini =====
+    if selisih_detik <= toleransi_telat_menit * 60:
+        sesi_sekarang.status_sesi = "hadir"
+        sesi_sekarang.telat_detik = 0
     else:
-        pesan_sukses = "Absensi berhasil dicatat (Terhitung Tidak Hadir / Alfa)"
+        sesi_sekarang.status_sesi = "telat"
+        sesi_sekarang.telat_detik = int(selisih_detik - (toleransi_telat_menit * 60))
+
+    sesi_sekarang.waktu_selesai = now
+    sesi_sekarang.confidence = hasil_kenali["confidence"]
+    sesi_sekarang.latitude = latitude
+    sesi_sekarang.longitude = longitude
+    db.commit()
+
+    sesi_terbaru = db.query(models.AbsensiSesi).filter(
+        models.AbsensiSesi.id_mahasiswa == id_mahasiswa,
+        models.AbsensiSesi.id_jadwal == id_jadwal,
+        func.date(models.AbsensiSesi.tanggal) == now.date(),
+    ).order_by(models.AbsensiSesi.jam_target).all()
+
+    belum_selesai = [s for s in sesi_terbaru if s.status_sesi == "belum"]
+
+    if belum_selesai:
+        urutan = next(i for i, s in enumerate(sesi_terbaru) if s.id == sesi_sekarang.id) + 1
+        return {
+            "berhasil": True,
+            "pesan": f"Sesi ke-{urutan}/{len(sesi_terbaru)} berhasil dicatat. Tunggu sesi absensi berikutnya — sistem akan memberi tahu otomatis.",
+            "selesai": True,        # putaran gesture kali ini SUDAH selesai
+            "hari_selesai": False,  # tapi absensi hari ini BELUM lengkap
+        }
+
+    absensi_baru, status_final, catatan_final = _simpan_absensi_final(
+        id_mahasiswa, id_jadwal, jadwal, sesi_terbaru, now, db,
+        confidence=hasil_kenali["confidence"], latitude=latitude, longitude=longitude,
+    )
+    total_telat_detik = absensi_baru.telat_detik or 0
+
+    telat_info = format_telat_detik(total_telat_detik)
+    if status_final == "hadir":
+        pesan_sukses = "Absensi berhasil dicatat — seluruh sesi diselesaikan tepat waktu"
+    elif status_final == "terlambat":
+        pesan_sukses = f"Absensi berhasil dicatat (Terlambat) — {catatan_final}"
+    else:
+        pesan_sukses = "Absensi berhasil dicatat (Tidak Hadir / Alfa) — seluruh sesi terlewat"
 
     return {
         "berhasil": True,
         "pesan": pesan_sukses,
         "selesai": True,
+        "hari_selesai": True,
         "data": {
             "id_mahasiswa": hasil_kenali["identitas"],
             "nama": hasil_kenali["nama"],
             "confidence": hasil_kenali["confidence"],
             "id_jadwal": id_jadwal,
-            "status": status_kehadiran,
-            "telat_detik": telat_detik,
-            "telat_teks": "Tidak Hadir / Alfa" if status_kehadiran == "tidak_hadir" else telat_info["teks"],
+            "status": status_final,
+            "telat_detik": total_telat_detik,
+            "telat_teks": catatan_final if status_final != "hadir" else telat_info["teks"],
             "waktu": str(absensi_baru.tanggal_absensi)
         }
     }

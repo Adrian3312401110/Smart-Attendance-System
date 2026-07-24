@@ -318,7 +318,7 @@ export default function DosenMatkulPage() {
                         <button
                           onClick={() => bukaLihatKelas(item)}
                           title="Lihat kelas yang memakai mata kuliah ini"
-                          className="flex items-center gap-1 text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white text-xs font-semibold"
+                          className="text-green-600 dark:text-green-300 hover:text-green-700 dark:hover:text-green-400 text-xs font-semibold flex items-center gap-1"
                         >
                           <Eye size={15} /> Lihat Kelas
                         </button>

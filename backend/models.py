@@ -1,3 +1,5 @@
+import secrets
+import string
 from sqlalchemy import Column, String, Integer, Float, DateTime, Boolean, Text, ForeignKey
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -148,10 +150,32 @@ class Absensi(Base):
     def __repr__(self):
         return f"<Absensi mhs={self.id_mahasiswa} mk={self.id_mata_kuliah} status={self.status}>"
 
+class AbsensiSesi(Base):
+    """
+    Melacak status per-slot-waktu (jam_target) untuk absensi bertahap
+    (mode 'tetap' maupun 'acak' yang punya lebih dari 1 jam absensi per hari).
+    Baru setelah SEMUA slot untuk hari itu resolved (hadir/telat/terlewat),
+    baru ditulis 1 row final ke tabel Absensi.
+    """
+    __tablename__ = "absensi_sesi"
 
-import secrets
-import string
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    id_mahasiswa = Column(String(20), ForeignKey("mahasiswa.id_mahasiswa"), nullable=False)
+    id_jadwal = Column(Integer, ForeignKey("jadwal.id"), nullable=False)
+    tanggal = Column(DateTime(timezone=True), nullable=False)
+    jam_target = Column(String(5), nullable=False)
+    status_sesi = Column(String(20), nullable=False, default="belum")  # belum | hadir | telat | terlewat
+    telat_detik = Column(Integer, default=0)
+    waktu_selesai = Column(DateTime(timezone=True), nullable=True)
+    confidence = Column(Float, nullable=True)
+    latitude = Column(Float, nullable=True)
+    longitude = Column(Float, nullable=True)
 
+    mahasiswa = relationship("Mahasiswa")
+    jadwal = relationship("Jadwal")
+
+    def __repr__(self):
+        return f"<AbsensiSesi mhs={self.id_mahasiswa} jadwal={self.id_jadwal} jam={self.jam_target} status={self.status_sesi}>"
 
 def generate_kode_kelas():
     chars = string.ascii_lowercase + string.digits

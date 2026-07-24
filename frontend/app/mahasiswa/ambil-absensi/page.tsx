@@ -39,12 +39,11 @@ interface AbsensiResult {
   waktu?: string;
   status?: string;
   telatTeks?: string;
+  hariSelesai?: boolean; // false = sesi ini selesai tapi masih ada sesi lain hari ini yang belum
 }
 
 const DURASI_CAPTURE_MS = 3000;
 const INTERVAL_FRAME_MS = 200;
-// Harus sama dengan TOLERANSI_MENIT di backend
-const TOLERANSI_MENIT_KLIEN = 15;
 
 // Daftar hari sesuai urutan JS Date.getDay(): 0=Minggu ... 6=Sabtu
 const DAFTAR_HARI = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
@@ -79,12 +78,13 @@ function bunyikanNotifikasi() {
 }
 
 // Hitung status waktu absensi untuk satu jadwal (di sisi klien)
-// PENTING: sekarang memvalidasi juga apakah HARI INI cocok dengan jadwal.hari,
-// bukan cuma jam. Jadwal hari Selasa tidak akan pernah "bisa" di hari lain.
+// PENTING: sesi hanya dianggap "bisa" begitu now >= jam_target — TIDAK ADA
+// jendela lebih awal, supaya konsisten dengan validasi di backend.
 function hitungStatusWaktu(jadwal: JadwalItem): {
   bisa: boolean;
   hari_cocok: boolean;
   terlalu_awal: boolean;
+  sudah_lewat: boolean;
   jam_berikutnya: string | null;
   menit_sampai: number | null;
 } {
@@ -92,46 +92,55 @@ function hitungStatusWaktu(jadwal: JadwalItem): {
   const hariCocok = jadwal.hari === hariSekarang;
 
   if (!hariCocok) {
-    return { bisa: false, hari_cocok: false, terlalu_awal: false, jam_berikutnya: null, menit_sampai: null };
+    return { bisa: false, hari_cocok: false, terlalu_awal: false, sudah_lewat: false, jam_berikutnya: null, menit_sampai: null };
   }
 
   const now = new Date();
   const nowMenit = now.getHours() * 60 + now.getMinutes();
+  const daftarJam = jadwal.daftar_jam_absensi ?? [];
 
-  if (!jadwal.daftar_jam_absensi || jadwal.daftar_jam_absensi.length === 0) {
-    return { bisa: false, hari_cocok: true, terlalu_awal: false, jam_berikutnya: null, menit_sampai: null };
+  if (daftarJam.length === 0) {
+    return { bisa: false, hari_cocok: true, terlalu_awal: false, sudah_lewat: false, jam_berikutnya: null, menit_sampai: null };
   }
 
+  const toMenit = (jamStr: string) => {
+    const [h, m] = jamStr.split(":").map(Number);
+    return h * 60 + m;
+  };
+
+  const jamSelesaiMenit = jadwal.jam_selesai ? toMenit(jadwal.jam_selesai) : null;
+
   let bisa = false;
+  let sudahLewatSemua = true;
   let jam_berikutnya: string | null = null;
   let menit_sampai: number | null = null;
 
-  // Hanya jam-jam yang sudah ditentukan dosen (daftar_jam_absensi) yang membuka jendela absensi.
-  // jam_mulai kelas TIDAK dipakai sebagai acuan sama sekali.
-  for (const jamStr of jadwal.daftar_jam_absensi) {
-    const [h, m] = jamStr.split(":").map(Number);
-    const targetMenit = h * 60 + m;
-    const selisih = nowMenit - targetMenit;
-
-    if (selisih >= -TOLERANSI_MENIT_KLIEN) {
-      bisa = true;
-      break;
+  for (let i = 0; i < daftarJam.length; i++) {
+    const targetMenit = toMenit(daftarJam[i]);
+    let batasMenit: number;
+    if (i + 1 < daftarJam.length) {
+      batasMenit = toMenit(daftarJam[i + 1]);
+    } else if (jamSelesaiMenit !== null && jamSelesaiMenit > targetMenit) {
+      batasMenit = jamSelesaiMenit;
     } else {
-      const menujuMenit = -selisih;
-      if (jam_berikutnya === null || menujuMenit < (menit_sampai ?? Infinity)) {
-        jam_berikutnya = jamStr;
-        menit_sampai = menujuMenit;
+      batasMenit = targetMenit + 120;
+    }
+
+    if (nowMenit >= targetMenit && nowMenit < batasMenit) {
+      bisa = true;
+      sudahLewatSemua = false;
+      break;
+    }
+    if (nowMenit < targetMenit) {
+      sudahLewatSemua = false;
+      if (jam_berikutnya === null || (targetMenit - nowMenit) < (menit_sampai ?? Infinity)) {
+        jam_berikutnya = daftarJam[i];
+        menit_sampai = targetMenit - nowMenit;
       }
     }
   }
 
-  return {
-    bisa,
-    hari_cocok: true,
-    terlalu_awal: !bisa && jam_berikutnya !== null,
-    jam_berikutnya,
-    menit_sampai,
-  };
+  return { bisa, hari_cocok: true, terlalu_awal: !bisa && jam_berikutnya !== null, sudah_lewat: sudahLewatSemua, jam_berikutnya, menit_sampai };
 }
 
 function visualGesture(instruksi: string) {
@@ -289,14 +298,14 @@ export default function AmbilAbsensiPage() {
         const targetMenit = h * 60 + m;
         const selisih = nowMenit - targetMenit;
         const kunciNotif = `${jadwalTerpilih.id}-${jamStr}-${now.toDateString()}`;
-        if (selisih >= -TOLERANSI_MENIT_KLIEN && selisih <= 1 && !sudahNotifRef.current.has(kunciNotif)) {
+        if (selisih >= 0 && selisih <= 1 && !sudahNotifRef.current.has(kunciNotif)) {
           sudahNotifRef.current.add(kunciNotif);
           bunyikanNotifikasi();
-          setNotifBanner(`🔔 Waktu absensi ${jadwalTerpilih.id_mata_kuliah} jam ${jamStr} sudah tiba! Segera absen.`);
+          setNotifBanner(`🔔 Sesi absensi ${jadwalTerpilih.id_mata_kuliah} sudah dibuka! Segera absen.`);
           setTimeout(() => setNotifBanner(null), 12000);
           if (typeof Notification !== "undefined" && Notification.permission === "granted") {
             new Notification(`Absensi ${jadwalTerpilih.id_mata_kuliah}`, {
-              body: `Waktu absensi jam ${jamStr} sudah tiba! Segera lakukan absensi.`,
+              body: `Sesi absensi sudah dibuka! Segera lakukan absensi.`,
               icon: "/favicon.ico",
             });
           }
@@ -371,7 +380,7 @@ export default function AmbilAbsensiPage() {
 
     if (jadwalTerpilih.daftar_jam_absensi.length > 0 && !sw.bisa) {
       const pesan = sw.terlalu_awal && sw.jam_berikutnya && sw.menit_sampai !== null
-        ? `⏰ Belum waktunya absensi. Sesi ${sw.jam_berikutnya} dibuka dalam ${sw.menit_sampai} menit lagi.`
+        ? `⏰ Belum waktunya absensi. Sesi berikutnya dibuka dalam ${sw.menit_sampai} menit lagi.`
         : "Tidak ada sesi absensi yang aktif untuk jadwal ini saat ini.";
       setResult({ berhasil: false, pesan });
       return;
@@ -478,6 +487,9 @@ export default function AmbilAbsensiPage() {
     );
 
     if (data.selesai) {
+      // "selesai" berarti PUTARAN GESTURE kali ini rampung. Bisa jadi ini baru
+      // 1 dari beberapa sesi absensi hari ini (hari_selesai === false),
+      // atau memang absensi hari ini sudah lengkap (hari_selesai === true).
       setResult({
         berhasil: true,
         pesan: data.pesan,
@@ -486,6 +498,7 @@ export default function AmbilAbsensiPage() {
         waktu: data.data?.waktu,
         status: data.data?.status,
         telatTeks: data.data?.telat_teks,
+        hariSelesai: data.hari_selesai ?? true,
       });
       setTahapan("selesai");
       setChallenge(null);
@@ -544,7 +557,11 @@ export default function AmbilAbsensiPage() {
                         <p className="font-bold">{j.id_mata_kuliah}</p>
                         <p className="text-xs text-slate-500 dark:text-slate-400">{j.hari} • {j.jam} • Dosen: {j.id_dosen}</p>
                         {j.daftar_jam_absensi?.length > 0 && (
-                          <p className="text-xs text-blue-500 mt-1">Jam absensi: {j.daftar_jam_absensi.join(", ")}</p>
+                          <p className="text-xs text-blue-500 mt-1">
+                            {j.mode_absensi === "acak"
+                              ? `🎲 ${j.daftar_jam_absensi.length} sesi absensi acak per pertemuan`
+                              : `Jam absensi: ${j.daftar_jam_absensi.join(", ")}`}
+                          </p>
                         )}
                       </div>
                       <div className="flex flex-col items-end gap-1">
@@ -559,6 +576,9 @@ export default function AmbilAbsensiPage() {
                         )}
                         {j.aktif && swj.hari_cocok && !swj.bisa && swj.terlalu_awal && swj.jam_berikutnya && (
                           <span className="text-[10px] font-bold bg-amber-100 text-amber-600 px-2 py-1 rounded-full">{swj.menit_sampai} mnt lagi</span>
+                        )}
+                        {j.aktif && swj.hari_cocok && swj.sudah_lewat && (
+                          <span className="text-[10px] font-bold bg-slate-200 dark:bg-slate-700 text-slate-500 dark:text-slate-300 px-2 py-1 rounded-full">Sudah ditutup</span>
                         )}
                       </div>
                     </div>
@@ -600,17 +620,15 @@ export default function AmbilAbsensiPage() {
         )}
 
         {/* Banner status waktu absensi */}
-        {statusWaktu?.hari_cocok && !statusWaktu.bisa && statusWaktu.terlalu_awal && statusWaktu.jam_berikutnya && (
-          <div className="mb-4 rounded-xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 px-5 py-3 flex items-center gap-3">
-            <span className="text-xl">⏰</span>
-            <div>
-              <p className="font-semibold text-amber-700 dark:text-amber-300 text-sm">Belum waktunya absensi</p>
-              <p className="text-xs text-amber-600 dark:text-amber-400">
-                Sesi berikutnya: <strong>{statusWaktu.jam_berikutnya}</strong> — dibuka dalam <strong>{statusWaktu.menit_sampai} menit</strong> lagi
-              </p>
-            </div>
-          </div>
-        )}
+        {statusWaktu?.hari_cocok && !statusWaktu.bisa && statusWaktu.sudah_lewat && (
+  <div className="mb-4 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50 px-5 py-3 flex items-center gap-3">
+    <span className="text-xl">🔒</span>
+    <div>
+      <p className="font-semibold text-slate-700 dark:text-slate-200 text-sm">Sesi absensi sudah ditutup</p>
+      <p className="text-xs text-slate-500 dark:text-slate-400">Jendela absensi untuk jadwal ini hari ini sudah berakhir.</p>
+    </div>
+  </div>
+)}
         {statusWaktu?.hari_cocok && statusWaktu?.bisa && (
           <div className="mb-4 rounded-xl border border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-950/30 px-5 py-3 flex items-center gap-3">
             <span className="text-xl">✅</span>
@@ -768,32 +786,42 @@ export default function AmbilAbsensiPage() {
             {jadwalTerpilih?.daftar_jam_absensi?.length ? (
               <div className="bg-card text-card-foreground border border-border rounded-2xl shadow p-6">
                 <h2 className="text-lg font-bold mb-3">Jam Absensi</h2>
-                <div className="flex flex-wrap gap-2">
-                  {jadwalTerpilih.daftar_jam_absensi.map((jam) => {
-                    const hariCocok = jadwalTerpilih.hari === hariIniLabel();
-                    const now = new Date();
-                    const nowMenit = now.getHours() * 60 + now.getMinutes();
-                    const [h, m] = jam.split(":").map(Number);
-                    const targetMenit = h * 60 + m;
-                    const selisih = nowMenit - targetMenit;
-                    const jamAktif = hariCocok && selisih >= -TOLERANSI_MENIT_KLIEN;
-                    return (
-                      <span
-                        key={jam}
-                        className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
-                          jamAktif
-                            ? "bg-green-100 dark:bg-green-950/50 text-green-700 dark:text-green-300"
-                            : "bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300"
-                        }`}
-                      >
-                        {jamAktif ? "✓ " : ""}{jam}
-                      </span>
-                    );
-                  })}
-                </div>
-                <p className="text-xs text-slate-400 mt-3">
-                  Jadwal ini hanya berlaku hari <strong>{jadwalTerpilih.hari}</strong>. Jam dengan tanda ✓ sudah bisa diabsen hari ini.
-                </p>
+                {jadwalTerpilih.mode_absensi === "acak" ? (
+                  <p className="text-xs text-slate-400">
+                    🎲 Sistem memilih {jadwalTerpilih.daftar_jam_absensi.length} waktu absensi secara acak
+                    selama jam kelas. Waktunya dirahasiakan — perhatikan notifikasi/banner di halaman ini
+                    saat sesi absensi dibuka.
+                  </p>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap gap-2">
+                      {jadwalTerpilih.daftar_jam_absensi.map((jam) => {
+                        const hariCocok = jadwalTerpilih.hari === hariIniLabel();
+                        const now = new Date();
+                        const nowMenit = now.getHours() * 60 + now.getMinutes();
+                        const [h, m] = jam.split(":").map(Number);
+                        const targetMenit = h * 60 + m;
+                        const selisih = nowMenit - targetMenit;
+                        const jamAktif = hariCocok && selisih >= 0;
+                        return (
+                          <span
+                            key={jam}
+                            className={`text-xs font-semibold px-2.5 py-1 rounded-full ${
+                              jamAktif
+                                ? "bg-green-100 dark:bg-green-950/50 text-green-700 dark:text-green-300"
+                                : "bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-300"
+                            }`}
+                          >
+                            {jamAktif ? "✓ " : ""}{jam}
+                          </span>
+                        );
+                      })}
+                    </div>
+                    <p className="text-xs text-slate-400 mt-3">
+                      Jadwal ini hanya berlaku hari <strong>{jadwalTerpilih.hari}</strong>. Jam dengan tanda ✓ sudah bisa diabsen hari ini.
+                    </p>
+                  </>
+                )}
               </div>
             ) : null}
 
@@ -807,7 +835,21 @@ export default function AmbilAbsensiPage() {
           </aside>
         </section>
 
-        {result && (
+        {/* Hasil sesi PARSIAL — sesi ini beres, tapi masih ada sesi lain hari ini */}
+        {result && result.hariSelesai === false && (
+          <section className="rounded-2xl border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/30 p-6">
+            <span className="rounded-full px-3 py-1 text-xs font-bold bg-blue-100 dark:bg-blue-900/50 text-blue-600 dark:text-blue-300">
+              Sesi Tercatat
+            </span>
+            <h2 className="mt-4 text-xl font-bold">{result.pesan}</h2>
+            <p className="text-sm text-slate-500 dark:text-slate-400 mt-2">
+              Tekan &quot;Mulai Absensi&quot; lagi saat sesi absensi berikutnya dibuka. Sistem akan memberi tahu otomatis.
+            </p>
+          </section>
+        )}
+
+        {/* Hasil FINAL — seluruh sesi hari ini sudah lengkap */}
+        {result && result.hariSelesai !== false && (
           <section className={`rounded-2xl border p-6 ${
             result.berhasil
               ? result.status === "terlambat"
@@ -855,7 +897,7 @@ export default function AmbilAbsensiPage() {
 
             {result.berhasil && result.status === "tidak_hadir" && (
               <p className="text-sm font-semibold text-rose-600 dark:text-rose-400 mt-2">
-                Terlambat melewati jam selesai kelas (Terhitung Tidak Hadir / Alfa).
+                {result.telatTeks || "Seluruh sesi absensi terlewat (Terhitung Tidak Hadir / Alfa)."}
               </p>
             )}
 

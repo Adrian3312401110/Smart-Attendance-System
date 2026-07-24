@@ -1,0 +1,58 @@
+$kind: http-request
+name: "T02: Menambahkan produk baru"
+url: http://127.0.0.1:5000/products
+method: POST
+body:
+  type: json
+  content: "{\r
+
+    \    \"nama_barang\": \"Susu Ultra\",\r
+
+    \    \"deskripsi\": \"Susu UHT rasa full cream\",\r
+
+    \    \"harga\": 8000,\r
+
+    \    \"stok\": 75\r
+
+    }"
+auth:
+  type: bearer
+  credentials:
+    token: "{{access_token}}"
+scripts:
+  - type: afterResponse
+    code: "var jsonData = pm.response.json();\r
+
+      \r
+
+      // Coba dua kemungkinan struktur response\r
+
+      if (jsonData.added_product) {\r
+
+      \    pm.collectionVariables.set(\"id_produk_baru\", jsonData.added_product.id);\r
+
+      } else {\r
+
+      \    pm.collectionVariables.set(\"id_produk_baru\", jsonData.id);\r
+
+      }\r
+
+      \r
+
+      pm.test(\"Kode status adalah 201\", function () {\r
+
+      \    pm.response.to.have.status(201);\r
+
+      });\r
+
+      \r
+
+      pm.test(\"Data produk berhasil ditambahkan\", function () {\r
+
+      \    pm.expect(jsonData).to.have.property('success');\r
+
+      \    pm.expect(jsonData).to.have.property('added_product');\r
+
+      });"
+    language: text/javascript
+order: 750633878211925
